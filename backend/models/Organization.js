@@ -1,0 +1,77 @@
+/**
+ * Organization Model
+ * Multi-tenant organization structure
+ */
+
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
+
+const organizationSchema = new Schema(
+  {
+    name: {
+      type: String,
+      required: [true, 'Organization name is required'],
+      trim: true,
+      maxlength: [200, 'Organization name cannot exceed 200 characters'],
+    },
+    type: {
+      type: String,
+      trim: true,
+      maxlength: [100, 'Organization type cannot exceed 100 characters'],
+    },
+    email: {
+      type: String,
+      required: [true, 'Organization email is required'],
+      lowercase: true,
+      trim: true,
+      index: true, // Critical for organization lookups
+      match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email'],
+    },
+    subscriptionPlan: {
+      type: String,
+      enum: ['FREE', 'PRO', 'ENTERPRISE'],
+      default: 'FREE',
+      index: true, // For filtering by plan
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ['ACTIVE', 'SUSPENDED', 'CANCELLED', 'TRIAL'],
+      default: 'TRIAL',
+      index: true, // Critical for subscription management
+    },
+    startDate: {
+      type: Date,
+      default: Date.now,
+    },
+    expiryDate: {
+      type: Date,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true, // For filtering active organizations
+    },
+  },
+  {
+    timestamps: true, // Automatically adds createdAt and updatedAt
+    strict: true, // Only fields defined in schema are saved
+  }
+);
+
+// Compound indexes for common query patterns
+organizationSchema.index({ subscriptionStatus: 1, isActive: 1 });
+organizationSchema.index({ subscriptionPlan: 1, subscriptionStatus: 1 });
+organizationSchema.index({ email: 1, isActive: 1 });
+
+// Pre-save hook: Ensure email is lowercase
+organizationSchema.pre('save', function (next) {
+  if (this.isModified('email')) {
+    this.email = this.email.toLowerCase().trim();
+  }
+  next();
+});
+
+const Organization = mongoose.model('Organization', organizationSchema);
+
+module.exports = Organization;
+

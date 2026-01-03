@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Mail, Lock, User, Building2, ArrowRight, Eye, EyeOff, Check, Sparkles, Phone, Globe, MapPin, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import api from "@/services/api";
 
 type PlanType = "free" | "pro" | "enterprise";
 
@@ -116,39 +117,27 @@ const Auth = () => {
 
     try {
       // Call register-org API
-      const response = await fetch("/api/auth/register-org", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await api.post("/auth/register-org", {
+        organization: {
+          name: formData.organization,
+          type: formData.organizationType,
+          address: formData.address,
+          website: formData.website || undefined,
+          verificationPrefix: formData.verificationPrefix,
+          plan: selectedPlan,
         },
-        body: JSON.stringify({
-          organization: {
-            name: formData.organization,
-            type: formData.organizationType,
-            address: formData.address,
-            website: formData.website || undefined,
-            verificationPrefix: formData.verificationPrefix,
-            plan: selectedPlan,
-          },
-          admin: {
-            name: formData.name,
-            email: formData.email,
-            mobileNumber: formData.mobileNumber,
-            password: formData.password,
-          },
-        }),
+        admin: {
+          name: formData.name,
+          email: formData.email,
+          mobileNumber: formData.mobileNumber,
+          password: formData.password,
+        },
       });
 
-      if (!response.ok) {
-        throw new Error("Registration failed");
-      }
-
-      const data = await response.json();
-
       // Auto-login after registration
-      // Store token (assuming JWT is returned)
-      if (data.token) {
-        localStorage.setItem("authToken", data.token);
+      // Store token (JWT is returned)
+      if (response.data.token) {
+        localStorage.setItem("authToken", response.data.token);
       }
 
       toast({
@@ -158,17 +147,13 @@ const Auth = () => {
 
       // Navigate to dashboard
       navigate("/dashboard");
-    } catch (error) {
-      // Fallback to simulate API call if backend not ready
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || "Registration failed";
       toast({
-        title: "Account created!",
-        description: "Your organization has been registered successfully.",
+        title: "Registration failed",
+        description: errorMessage,
+        variant: "destructive",
       });
-
-      // Navigate to dashboard (would be authenticated in real app)
-      navigate("/dashboard");
     } finally {
       setIsLoading(false);
     }
@@ -178,18 +163,34 @@ const Auth = () => {
     e.preventDefault();
     setIsLoading(true);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const response = await api.post("/auth/login", {
+        email: formData.email,
+        password: formData.password,
+      });
 
-    toast({
-      title: "Welcome back!",
-      description: "You have successfully signed in.",
-    });
+      // Store token
+      if (response.data.token) {
+        localStorage.setItem("authToken", response.data.token);
+      }
 
-    setIsLoading(false);
-    
-    // Navigate to dashboard (would be authenticated in real app)
-    navigate("/dashboard");
+      toast({
+        title: "Welcome back!",
+        description: "You have successfully signed in.",
+      });
+
+      // Navigate to dashboard
+      navigate("/dashboard");
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || "Login failed";
+      toast({
+        title: "Login failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -24,10 +24,8 @@ import {
   XCircle,
   FileText,
 } from "lucide-react";
-import {
-  allCertificates,
-  getSingleCertificateSample,
-} from "@/data/dashboardSampleData";
+import api from "@/services/api";
+import { useToast } from "@/hooks/use-toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,31 +41,71 @@ const sidebarLinks = [
   { icon: BarChart3, label: "Analytics", href: "/dashboard/analytics", active: false },
 ];
 
+interface Certificate {
+  _id: string;
+  certificateId: string;
+  recipientName: string;
+  recipientEmail: string;
+  courseName: string;
+  issueDate: string;
+  expiryDate?: string;
+  status: string;
+  batchName?: string;
+}
+
 const Certificates = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
   const location = useLocation();
 
+  // Fetch certificates from API
+  useEffect(() => {
+    const fetchCertificates = async () => {
+      try {
+        setIsLoading(true);
+        const response = await api.get("/certificates");
+        if (response.data.success) {
+          setCertificates(response.data.data || []);
+        } else {
+          throw new Error("Failed to fetch certificates");
+        }
+      } catch (error: any) {
+        console.error("Error fetching certificates:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load certificates. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCertificates();
+  }, []);
+
   // Filter certificates based on search and status
-  const filteredCertificates = allCertificates.filter((cert) => {
+  const filteredCertificates = certificates.filter((cert) => {
     const matchesSearch =
-      cert.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cert.recipient.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cert.course.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || cert.status === statusFilter;
+      cert.certificateId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cert.recipientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cert.recipientEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cert.courseName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === "all" || cert.status.toUpperCase() === statusFilter.toUpperCase();
     return matchesSearch && matchesStatus;
   });
 
   const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "active":
+    switch (status.toUpperCase()) {
+      case "ACTIVE":
         return <CheckCircle2 className="w-4 h-4 text-success" />;
-      case "pending":
-        return <Clock className="w-4 h-4 text-warning" />;
-      case "expired":
+      case "EXPIRED":
         return <Clock className="w-4 h-4 text-muted-foreground" />;
-      case "revoked":
+      case "REVOKED":
         return <XCircle className="w-4 h-4 text-destructive" />;
       default:
         return null;
@@ -75,24 +113,16 @@ const Certificates = () => {
   };
 
   const getStatusVariant = (status: string) => {
-    switch (status) {
-      case "active":
+    switch (status.toUpperCase()) {
+      case "ACTIVE":
         return "verified";
-      case "pending":
-        return "warning";
-      case "expired":
+      case "EXPIRED":
         return "secondary";
-      case "revoked":
+      case "REVOKED":
         return "destructive";
       default:
         return "default";
     }
-  };
-
-  const handleCreateCertificate = () => {
-    const sampleData = getSingleCertificateSample();
-    console.log("Create Certificate - Sample Data:", sampleData);
-    // TODO: Open certificate creation modal/form with sample data
   };
 
   return (
@@ -202,16 +232,13 @@ const Certificates = () => {
                       <DropdownMenuItem onClick={() => setStatusFilter("all")}>
                         All
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setStatusFilter("active")}>
+                      <DropdownMenuItem onClick={() => setStatusFilter("ACTIVE")}>
                         Active
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setStatusFilter("pending")}>
-                        Pending
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setStatusFilter("expired")}>
+                      <DropdownMenuItem onClick={() => setStatusFilter("EXPIRED")}>
                         Expired
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setStatusFilter("revoked")}>
+                      <DropdownMenuItem onClick={() => setStatusFilter("REVOKED")}>
                         Revoked
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -252,38 +279,50 @@ const Certificates = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCertificates.length === 0 ? (
+                    {isLoading ? (
                       <tr>
                         <td colSpan={7} className="py-8 text-center text-muted-foreground">
-                          No certificates found matching your search criteria.
+                          Loading certificates...
+                        </td>
+                      </tr>
+                    ) : filteredCertificates.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                          {certificates.length === 0 
+                            ? "No certificates found. Issue your first certificate to get started."
+                            : "No certificates found matching your search criteria."}
                         </td>
                       </tr>
                     ) : (
                       filteredCertificates.map((cert) => (
                         <tr
-                          key={cert.id}
+                          key={cert._id}
                           className="border-b border-border/50 hover:bg-muted/30 transition-colors"
                         >
                           <td className="py-3 px-4">
-                            <span className="font-mono text-sm text-foreground">{cert.id}</span>
+                            <span className="font-mono text-sm text-foreground">{cert.certificateId}</span>
                           </td>
                           <td className="py-3 px-4">
                             <div className="flex flex-col">
-                              <span className="font-medium text-foreground">{cert.recipient}</span>
+                              <span className="font-medium text-foreground">{cert.recipientName}</span>
                               <span className="text-xs text-muted-foreground">{cert.recipientEmail}</span>
                             </div>
                           </td>
                           <td className="py-3 px-4">
                             <div className="flex flex-col">
-                              <span className="text-foreground">{cert.course}</span>
-                              <span className="text-xs text-muted-foreground">{cert.courseCode}</span>
+                              <span className="text-foreground">{cert.courseName}</span>
+                              {cert.batchName && (
+                                <span className="text-xs text-muted-foreground">{cert.batchName}</span>
+                              )}
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <span className="text-muted-foreground">{cert.issuerOrg}</span>
+                            <span className="text-muted-foreground">-</span>
                           </td>
                           <td className="py-3 px-4">
-                            <span className="text-muted-foreground">{cert.date}</span>
+                            <span className="text-muted-foreground">
+                              {new Date(cert.issueDate).toLocaleDateString()}
+                            </span>
                           </td>
                           <td className="py-3 px-4">
                             <Badge variant={getStatusVariant(cert.status)} className="gap-1">
@@ -309,7 +348,7 @@ const Certificates = () => {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem>
                                   <FileCheck className="w-4 h-4 mr-2" />
-                                  Verify
+                                  <Link to={`/verify/${cert.certificateId}`}>Verify</Link>
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>

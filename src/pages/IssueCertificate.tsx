@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import api from "@/services/api";
 
 interface CertificateData {
   recipientName: string;
@@ -49,7 +50,7 @@ const IssueCertificate = () => {
     batchName: "",
     expirationDate: "",
     additionalInfo: "",
-    organizationName: "TechCorp Academy", // This would come from logged-in org context
+    organizationName: "", // Will be auto-populated from backend
     emailTemplate: "", // Email template ID
     certificateTemplate: "", // Certificate template ID
   });
@@ -57,6 +58,30 @@ const IssueCertificate = () => {
   const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
   const [defaultTemplate, setDefaultTemplate] = useState<any>(null);
   const [certificateTemplates, setCertificateTemplates] = useState<any[]>([]);
+  const [organizationName, setOrganizationName] = useState<string>("");
+
+  // Load organization name from backend
+  useEffect(() => {
+    const fetchOrganization = async () => {
+      try {
+        const response = await api.get("/org/profile");
+        if (response.data.success && response.data.data) {
+          const orgName = response.data.data.name || "";
+          setOrganizationName(orgName);
+          setFormData((prev) => ({ ...prev, organizationName: orgName }));
+        }
+      } catch (error) {
+        console.error("Error fetching organization:", error);
+        toast({
+          title: "Failed to load organization",
+          description: "Could not fetch organization information",
+          variant: "destructive",
+        });
+      }
+    };
+
+    fetchOrganization();
+  }, [toast]);
 
   // Load email templates
   useEffect(() => {
@@ -69,13 +94,30 @@ const IssueCertificate = () => {
     }
   }, []);
 
-  // Load certificate templates
+  // Load certificate templates from API
   useEffect(() => {
-    const templates = JSON.parse(localStorage.getItem("certificateTemplates") || "[]");
-    setCertificateTemplates(templates);
-    if (templates.length > 0 && !formData.certificateTemplate) {
-      setFormData((prev) => ({ ...prev, certificateTemplate: templates[0].id }));
-    }
+    const fetchTemplates = async () => {
+      try {
+        const response = await api.get("/templates/certificate");
+        // Handle both response formats: {success: true, data: [...]} or [...]
+        const templates = response.data.success 
+          ? (response.data.data || []) 
+          : (Array.isArray(response.data) ? response.data : []);
+        
+        setCertificateTemplates(templates);
+        
+        // Set first template as default if available and no template is selected
+        if (templates && templates.length > 0 && !formData.certificateTemplate) {
+          setFormData((prev) => ({ ...prev, certificateTemplate: templates[0]._id }));
+        }
+      } catch (error) {
+        console.error("Error fetching certificate templates:", error);
+        // If API fails, templates will remain empty array (allows certificates without templates)
+        setCertificateTemplates([]);
+      }
+    };
+
+    fetchTemplates();
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -85,88 +127,56 @@ const IssueCertificate = () => {
     }));
   };
 
-  const generateCertificateId = () => {
-    // Dummy certificate ID generation
-    const prefix = "CERT";
-    const random = Math.random().toString(36).substring(2, 10).toUpperCase();
-    const timestamp = Date.now().toString().slice(-6);
-    return `${prefix}-${random}-${timestamp}`;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // Create dummy certificate object
-    const cert: CertificateData = {
-      ...formData,
-      certificateId: generateCertificateId(),
-    };
-
-    setCertificateData(cert);
-    setShowPreview(true);
-    setIsSubmitting(false);
-
-    // Send email with selected template (dummy)
-    const selectedTemplate = emailTemplates.find((t) => t.id === formData.emailTemplate) || defaultTemplate;
-    if (selectedTemplate) {
-      // Replace placeholders in email template
-      let emailSubject = selectedTemplate.subject;
-      let emailBody = selectedTemplate.body;
-      
-      emailSubject = emailSubject.replace(/{{student_name}}/g, formData.recipientName);
-      emailSubject = emailSubject.replace(/{{student_email}}/g, formData.recipientEmail);
-      emailSubject = emailSubject.replace(/{{course_name}}/g, formData.courseName);
-      emailSubject = emailSubject.replace(/{{certificate_id}}/g, cert.certificateId);
-      emailSubject = emailSubject.replace(/{{organization_name}}/g, formData.organizationName);
-      emailSubject = emailSubject.replace(/{{issue_date}}/g, formData.issueDate);
-      
-      emailBody = emailBody.replace(/{{student_name}}/g, formData.recipientName);
-      emailBody = emailBody.replace(/{{student_email}}/g, formData.recipientEmail);
-      emailBody = emailBody.replace(/{{course_name}}/g, formData.courseName);
-      emailBody = emailBody.replace(/{{certificate_id}}/g, cert.certificateId);
-      emailBody = emailBody.replace(/{{organization_name}}/g, formData.organizationName);
-      emailBody = emailBody.replace(/{{issue_date}}/g, formData.issueDate);
-      emailBody = emailBody.replace(/{{certificate_type}}/g, "Course Completion");
-      emailBody = emailBody.replace(/{{certificate_download_link}}/g, `${window.location.origin}/download/${cert.certificateId}`);
-      emailBody = emailBody.replace(/{{certificate_verification_link}}/g, `${window.location.origin}/verify/${cert.certificateId}`);
-
-      // Dummy email sending (console log)
-      console.log("Email would be sent:", {
-        to: formData.recipientEmail,
-        subject: emailSubject,
-        body: emailBody,
+    try {
+      // Call real API to issue certificate
+      const response = await api.post("/certificates", {
+        recipientName: formData.recipientName,
+        recipientEmail: formData.recipientEmail,
+        courseName: formData.courseName,
+        batchName: formData.batchName || undefined,
+        issueDate: formData.issueDate,
+        expiryDate: formData.expirationDate || undefined,
+        templateId: formData.certificateTemplate || undefined,
       });
 
-      // Update email template usage count
-      const updatedEmailTemplates = emailTemplates.map((t) => {
-        if (t.id === selectedTemplate.id) {
-          return { ...t, usageCount: (t.usageCount || 0) + 1 };
-        }
-        return t;
+      if (response.data.success && response.data.data) {
+        const certificate = response.data.data;
+        
+        // Set certificate data for preview
+        setCertificateData({
+          recipientName: certificate.recipientName,
+          recipientEmail: certificate.recipientEmail,
+          courseName: certificate.courseName,
+          issueDate: new Date(certificate.issueDate).toISOString().split("T")[0],
+          batchName: certificate.batchName,
+          expirationDate: certificate.expiryDate ? new Date(certificate.expiryDate).toISOString().split("T")[0] : undefined,
+          organizationName: organizationName || formData.organizationName,
+          certificateId: certificate.certificateId,
+        });
+
+        setShowPreview(true);
+        
+        toast({
+          title: "Certificate Created Successfully!",
+          description: `Certificate ${certificate.certificateId} has been issued and saved to database.`,
+        });
+      } else {
+        throw new Error("Failed to create certificate");
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || "Failed to issue certificate";
+      toast({
+        title: "Certificate Creation Failed",
+        description: errorMessage,
+        variant: "destructive",
       });
-      localStorage.setItem("emailTemplates", JSON.stringify(updatedEmailTemplates));
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Update certificate template usage count
-    if (formData.certificateTemplate) {
-      const updatedCertTemplates = certificateTemplates.map((t) => {
-        if (t.id === formData.certificateTemplate) {
-          return { ...t, usageCount: (t.usageCount || 0) + 1 };
-        }
-        return t;
-      });
-      setCertificateTemplates(updatedCertTemplates);
-      localStorage.setItem("certificateTemplates", JSON.stringify(updatedCertTemplates));
-    }
-
-    toast({
-      title: "Certificate Created Successfully!",
-      description: "Your certificate has been generated and is ready to download. Email notification sent.",
-    });
   };
 
   const handleDownloadPDF = () => {
@@ -319,10 +329,10 @@ const IssueCertificate = () => {
                           id="organizationName"
                           name="organizationName"
                           type="text"
-                          value={formData.organizationName}
-                          onChange={handleChange}
+                          value={organizationName || formData.organizationName}
                           className="pl-10 bg-muted"
                           readOnly
+                          disabled
                         />
                       </div>
                     </div>
@@ -339,11 +349,17 @@ const IssueCertificate = () => {
                           <SelectValue placeholder="Select certificate template" />
                         </SelectTrigger>
                         <SelectContent>
-                          {certificateTemplates.map((template) => (
-                            <SelectItem key={template.id} value={template.id}>
-                              {template.name}
-                            </SelectItem>
-                          ))}
+                          {certificateTemplates.length === 0 ? (
+                            <div className="py-1.5 pl-8 pr-2 text-sm text-muted-foreground">
+                              No templates available
+                            </div>
+                          ) : (
+                            certificateTemplates.map((template) => (
+                              <SelectItem key={template._id} value={template._id}>
+                                {template.templateName}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-muted-foreground">
@@ -578,9 +594,9 @@ const IssueCertificate = () => {
                         batchName: "",
                         expirationDate: "",
                         additionalInfo: "",
-                        organizationName: "TechCorp Academy",
+                        organizationName: organizationName,
                         emailTemplate: defaultTemplate?.id || "",
-                        certificateTemplate: certificateTemplates.length > 0 ? certificateTemplates[0].id : "",
+                        certificateTemplate: certificateTemplates.length > 0 ? certificateTemplates[0]._id : "",
                       });
                     }}
                   >
