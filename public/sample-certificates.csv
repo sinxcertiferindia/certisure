@@ -1,0 +1,12 @@
+recipientName,recipientEmail,courseName,courseCode,issuerOrg,issueDate,expiryDate,grade,credits,instructor,certificateType,template
+Sarah Mitchell,sarah.mitchell@example.com,Data Science Fundamentals,DSF-2024,DataLearn Institute,2024-12-20,2025-12-20,A,4.0,Prof. Michael Brown,completion,classic
+Emily Davis,emily.davis@example.com,Machine Learning Basics,MLB-2024,AI Academy,2024-12-22,,A+,3.5,Dr. James Wilson,achievement,premium
+Michael Brown,michael.brown@example.com,Cloud Architecture,CA-2024,CloudTech University,2024-12-23,2026-12-23,B+,4.0,Dr. Lisa Anderson,professional,modern
+James Wilson,james.wilson@example.com,Cybersecurity Essentials,CSE-2024,SecureNet Academy,2024-12-21,2025-12-21,A,3.0,Prof. Robert Taylor,completion,minimalist
+Jessica Martinez,jessica.martinez@example.com,Full Stack Development,FSD-2024,CodeMaster Institute,2024-12-24,,A+,5.0,Dr. David Lee,achievement,premium
+David Chen,david.chen@example.com,Python Programming,PP-2024,CodeMaster Institute,2024-12-19,2025-12-19,A,3.0,Dr. Maria Garcia,completion,modern
+Lisa Anderson,lisa.anderson@example.com,DevOps Fundamentals,DOF-2024,CloudTech University,2024-12-18,,B+,3.5,Prof. John Smith,participation,minimalist
+Robert Taylor,robert.taylor@example.com,Blockchain Basics,BB-2024,CryptoLearn Academy,2024-12-17,2025-12-17,A,4.0,Dr. Alex Johnson,professional,premium
+Maria Garcia,maria.garcia@example.com,UI/UX Design,UXD-2024,Design Institute,2024-12-16,,A+,3.0,Prof. Sarah Williams,achievement,classic
+Alex Johnson,alex.johnson@example.com,Database Management,DBM-2024,DataLearn Institute,2024-12-15,2026-12-15,A,4.0,Dr. Michael Brown,completion,modern
+

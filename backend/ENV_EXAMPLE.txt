@@ -1,0 +1,16 @@
+# MongoDB Connection
+MONGO_URI=mongodb://localhost:27017/certiflow_pro
+
+# JWT Secret (generate a strong random string)
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+
+# Database Encryption Key (32+ character string for AES-256)
+# Generate a secure random key: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+DB_ENCRYPTION_KEY=your-32-character-encryption-key-here
+
+# Node Environment
+NODE_ENV=development
+
+# Server Configuration (if needed)
+PORT=3000
+

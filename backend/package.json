@@ -1,0 +1,31 @@
+{
+  "name": "certiflow-pro-backend",
+  "version": "1.0.0",
+  "description": "Backend database layer for CertiFlow Pro - Secure multi-tenant certificate management",
+  "main": "index.js",
+  "scripts": {
+    "start": "node --max-http-header-size=81920 server.js",
+    "dev": "nodemon --max-http-header-size=81920 server.js"
+  },
+  "keywords": [
+    "certificate",
+    "management",
+    "mongodb",
+    "mongoose",
+    "multi-tenant"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "mongoose": "^8.0.0",
+    "bcrypt": "^5.1.1",
+    "uuid": "^9.0.0",
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
