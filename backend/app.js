@@ -10,7 +10,7 @@ const teamRoutes = require("./routes/teamRoutes");
 const app = express();
 
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:8080"],
+  origin: true, // Allow all origins for now to prevent CORS issues in production
   credentials: true
 }));
 
