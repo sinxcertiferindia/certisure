@@ -183,7 +183,7 @@ const Verify = () => {
     setVerificationResult(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/certificate/verify/${id}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/certificate/verify/${id}`);
       const data = await response.json();
 
       if (data.success) {
