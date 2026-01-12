@@ -141,6 +141,19 @@ const CertificateBuilder = () => {
               };
             }
             fetchedPermissions.customTemplates = true;
+          } else {
+            // FREE Plan - Ensure Logo/Signature are allowed
+            if (!fetchedPermissions.editorTools) {
+              fetchedPermissions.editorTools = {};
+            }
+            // Explicitly allow allowed tools
+            fetchedPermissions.editorTools.logoUpload = true;
+            fetchedPermissions.editorTools.signatureUpload = true;
+
+            // Ensure reduced tools are disabled (just in case)
+            fetchedPermissions.editorTools.textEditing = false;
+            fetchedPermissions.editorTools.shapes = false;
+            fetchedPermissions.editorTools.backgroundColor = false;
           }
 
           setPermissions(fetchedPermissions);

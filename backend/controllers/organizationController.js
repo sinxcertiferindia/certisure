@@ -327,8 +327,69 @@ const deleteOrganization = async (req, res) => {
   }
 };
 
+/**
+ * Update organization profile (including logo)
+ */
+const updateOrganizationProfile = async (req, res) => {
+  try {
+    const orgId = req.user.orgId;
+    const { name, type, logo } = req.body;
+
+    const organization = await Organization.findById(orgId);
+    if (!organization) {
+      return res.status(404).json({
+        success: false,
+        message: "Organization not found"
+      });
+    }
+
+    // Update fields if provided
+    if (name) organization.name = name;
+    if (type) organization.type = type;
+
+    // Handle logo upload - store as base64 data URL or file path
+    if (logo) {
+      // Logo can be a base64 string or URL
+      // For now, we'll store it directly
+      // In production, you'd want to:
+      // 1. Validate image format and size
+      // 2. Resize/optimize the image
+      // 3. Store in cloud storage (S3, Cloudinary, etc.)
+      // 4. Save the URL to database
+      organization.logo = logo;
+    }
+
+    await organization.save();
+
+    // Log audit event
+    await AuditLog.create({
+      orgId: organization._id,
+      userId: req.user?.userId || null,
+      action: "ORGANIZATION_PROFILE_UPDATED",
+      entityType: "ORGANIZATION",
+      entityId: organization._id,
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      metadata: { updatedFields: Object.keys(req.body) }
+    });
+
+    res.json({
+      success: true,
+      message: "Organization profile updated successfully",
+      data: organization
+    });
+  } catch (error) {
+    console.error("Update organization profile error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update organization profile"
+    });
+  }
+};
+
 module.exports = {
   getOrganizationProfile,
+  updateOrganizationProfile,
   getAllOrganizations,
   approveOrganization,
   blockOrganization,

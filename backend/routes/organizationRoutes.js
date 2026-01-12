@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const {
   getOrganizationProfile,
+  updateOrganizationProfile,
   getAllOrganizations,
   approveOrganization,
   blockOrganization,
@@ -13,6 +14,7 @@ const auth = require("../middlewares/authMiddleware");
 const authorize = require("../middlewares/roleMiddleware");
 
 router.get("/profile", auth, getOrganizationProfile);
+router.put("/profile", auth, updateOrganizationProfile);
 
 // Master Dashboard routes (Authenticated users)
 router.get("/all", auth, getAllOrganizations);

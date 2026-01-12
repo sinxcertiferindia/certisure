@@ -18,17 +18,41 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
 import { Badge } from "@/components/ui/badge";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const SavedTemplates = () => {
     const [templates, setTemplates] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const [organizationPlan, setOrganizationPlan] = useState("FREE");
     const { toast } = useToast();
     const navigate = useNavigate();
 
     useEffect(() => {
-        fetchTemplates();
+        const loadData = async () => {
+            await fetchPlan();
+            await fetchTemplates();
+        };
+        loadData();
     }, []);
+
+    const fetchPlan = async () => {
+        try {
+            const response = await api.get("/users/me");
+            if (response.data.success) {
+                const plan = response.data.data.organization?.plan?.planName ||
+                    response.data.data.organization?.subscriptionPlan || "FREE";
+                setOrganizationPlan(plan);
+            }
+        } catch (error) {
+            console.error("Failed to fetch plan:", error);
+        }
+    };
 
     const fetchTemplates = async () => {
         try {
@@ -79,12 +103,32 @@ const SavedTemplates = () => {
                         Manage and customize your organization's certificate designs.
                     </p>
                 </div>
-                <Button asChild className="bg-primary hover:bg-primary/90">
-                    <Link to="/dashboard/templates/builder">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create New Template
-                    </Link>
-                </Button>
+                <TooltipProvider>
+                    <Tooltip delayDuration={0}>
+                        <TooltipTrigger asChild>
+                            <span tabIndex={0}>
+                                <Button
+                                    className={`bg-primary hover:bg-primary/90 ${organizationPlan === "FREE" ? "pointer-events-none opacity-50" : ""}`}
+                                    onClick={(e) => {
+                                        if (organizationPlan === "FREE") {
+                                            e.preventDefault();
+                                        } else {
+                                            navigate("/dashboard/templates/builder");
+                                        }
+                                    }}
+                                >
+                                    <Plus className="w-4 h-4 mr-2" />
+                                    {organizationPlan === "FREE" ? "Upgrade to Create" : "Create New Template"}
+                                </Button>
+                            </span>
+                        </TooltipTrigger>
+                        {organizationPlan === "FREE" && (
+                            <TooltipContent side="bottom" align="end">
+                                <p>🔒 Upgrade to Pro to unlock full template features</p>
+                            </TooltipContent>
+                        )}
+                    </Tooltip>
+                </TooltipProvider>
             </div>
 
             <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border border-border/50">

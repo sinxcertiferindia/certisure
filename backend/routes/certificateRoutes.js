@@ -11,8 +11,8 @@ router.get("/", auth, getCertificates);
 router.post("/bulk", auth, requirePaidPlan, bulkIssueCertificates); // Bulk issue - PAID PLANS ONLY
 
 // Master Routes (Authenticated users)
-router.get("/all", auth, getAllCertificates);
-router.delete("/:certificateId", auth, deleteCertificate);
+router.get("/all", auth, authorize(["SUPER_ADMIN"]), getAllCertificates);
+router.delete("/:certificateId", auth, authorize(["SUPER_ADMIN"]), deleteCertificate);
 
 // Public Routes
 const { verifyCertificate } = require("../controllers/certificateController");

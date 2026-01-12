@@ -13,6 +13,7 @@ import {
     Shield,
     ChevronLeft,
     ChevronRight,
+    Upload,
 } from "lucide-react";
 import api from "@/services/api";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,14 @@ interface AppSidebarProps {
     onToggle?: () => void;
 }
 
+interface SidebarLink {
+    icon: any;
+    label: string;
+    href: string;
+    disabled?: boolean;
+    tooltip?: string;
+}
+
 export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
     const location = useLocation();
     const navigate = useNavigate();
@@ -88,38 +97,57 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
     }, []);
 
     // Define sidebar links based on role and plan permissions
-    const getSidebarLinks = () => {
-        const baseLinks = [
-            { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-            { icon: FileCheck, label: "Certificates", href: "/dashboard/certificates" },
+    const getSidebarLinks = (): SidebarLink[] => {
+        const baseLinks: SidebarLink[] = [
+            { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard", disabled: false },
+            { icon: FileCheck, label: "Certificates", href: "/dashboard/certificates", disabled: false },
         ];
 
-        // Check for Custom Templates permission or PRO/ENTERPRISE plan as fallback
-        const hasTemplateAccess =
-            organizationData?.plan?.permissions?.customTemplates ||
+        // Bulk Issuance - Pro/Enterprise only
+        const hasBulkIssuance =
+            organizationData?.plan?.permissions?.bulkIssuance ||
             ["PRO", "ENTERPRISE", "PRO_PLAN", "ENTERPRISE_PLAN"].includes(organizationData?.subscriptionPlan || "") ||
             ["PRO", "ENTERPRISE"].includes(organizationData?.plan?.planName || "");
 
-        if (hasTemplateAccess) {
-            baseLinks.push({
-                icon: FileText,
-                label: "Templates",
-                href: "/dashboard/templates"
-            });
-        }
+        baseLinks.push({
+            icon: Upload,
+            label: "Bulk Upload",
+            href: "/dashboard/bulk-upload",
+            disabled: !hasBulkIssuance,
+            tooltip: !hasBulkIssuance ? "Bulk issuing is available in paid plans only" : undefined
+        });
 
-        // Always add Team Members and Analytics
+        // Templates - Available for everyone (Free users have restricted access)
+        baseLinks.push({
+            icon: FileText,
+            label: "Templates",
+            href: "/dashboard/templates",
+            disabled: false
+        });
+
+        // Always add Team Members
         baseLinks.push(
-            { icon: Users, label: "Team Members", href: "/dashboard/team" },
-            { icon: BarChart3, label: "Analytics", href: "/dashboard/analytics" }
+            { icon: Users, label: "Team Members", href: "/dashboard/team", disabled: false }
         );
+
+        // Analytics - Only for paid plans
+        const isPaidPlan = hasBulkIssuance; // Reuse logic as Analytics is generally Pro+
+
+        baseLinks.push({
+            icon: BarChart3,
+            label: "Analytics",
+            href: "/dashboard/analytics",
+            disabled: !isPaidPlan,
+            tooltip: !isPaidPlan ? "Analytics are available in paid plans only" : undefined
+        });
 
         // Add Admin option only for ORG_ADMIN
         if (userData?.role === "ORG_ADMIN") {
             baseLinks.push({
                 icon: Settings,
                 label: "Admin",
-                href: "/dashboard/admin"
+                href: "/dashboard/admin",
+                disabled: false
             });
         }
 
@@ -159,20 +187,37 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
 
                 {/* Navigation */}
                 <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-                    {sidebarLinks.map((link) => {
+                    {sidebarLinks.map((link: any) => {
                         const isActive = location.pathname === link.href ||
                             location.pathname.startsWith(link.href + "/");
-                        return (
-                            <Link
-                                key={link.label}
-                                to={link.href}
-                                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
-                                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                    : "hover:bg-sidebar-accent/50 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+
+                        const linkContent = (
+                            <div
+                                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${link.disabled
+                                    ? "opacity-50 cursor-not-allowed bg-sidebar-accent/20"
+                                    : isActive
+                                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                        : "hover:bg-sidebar-accent/50 text-sidebar-foreground/70 hover:text-sidebar-foreground cursor-pointer"
                                     }`}
+                                onClick={(e) => {
+                                    if (link.disabled) {
+                                        e.preventDefault();
+                                    }
+                                }}
+                                title={link.tooltip || ""}
                             >
                                 <link.icon className="w-5 h-5 flex-shrink-0" />
                                 {!collapsed && <span className="font-medium">{link.label}</span>}
+                            </div>
+                        );
+
+                        return link.disabled ? (
+                            <div key={link.label}>
+                                {linkContent}
+                            </div>
+                        ) : (
+                            <Link key={link.label} to={link.href}>
+                                {linkContent}
                             </Link>
                         );
                     })}

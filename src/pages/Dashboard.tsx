@@ -24,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
 import { AppSidebar } from "@/components/layout/AppSidebar";
@@ -108,7 +114,7 @@ const Dashboard = () => {
         setIsLoadingDashboard(true);
 
         // Fetch certificates
-        const certsResponse = await api.get("/certificate/all");
+        const certsResponse = await api.get("/certificate");
         if (certsResponse.data.success) {
           const certificates = certsResponse.data.data;
 
@@ -454,14 +460,27 @@ const Dashboard = () => {
                   <p className="text-sm text-muted-foreground mb-4 flex-1">
                     Upload CSV/Excel to issue multiple certificates at once.
                   </p>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={handleUploadBatch}
-                    disabled={!organizationData?.plan?.permissions?.bulkIssuance}
-                  >
-                    {organizationData?.plan?.permissions?.bulkIssuance ? "Upload Batch" : "Upgrade to Pro"}
-                  </Button>
+                  <TooltipProvider>
+                    <Tooltip delayDuration={0}>
+                      <TooltipTrigger asChild>
+                        <span className="w-full block" tabIndex={0}>
+                          <Button
+                            variant="outline"
+                            className={`w-full ${!organizationData?.plan?.permissions?.bulkIssuance ? "pointer-events-none" : ""}`}
+                            onClick={handleUploadBatch}
+                            disabled={!organizationData?.plan?.permissions?.bulkIssuance}
+                          >
+                            {organizationData?.plan?.permissions?.bulkIssuance ? "Upload Batch" : "Upgrade to Pro"}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {!organizationData?.plan?.permissions?.bulkIssuance && (
+                        <TooltipContent side="top" align="center">
+                          <p>🔒 Bulk certificate issuing is available in paid plans only</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
                 </CardContent>
               </Card>
             </motion.div>
@@ -480,8 +499,23 @@ const Dashboard = () => {
                   <p className="text-sm text-muted-foreground mb-4 flex-1">
                     View detailed analytics and certificate reports.
                   </p>
-                  <Button variant="outline" className="w-full" onClick={() => navigate("/dashboard/analytics")}>
-                    View Analytics
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      if (organizationPlan === "FREE") {
+                        toast({
+                          title: "Upgrade Required",
+                          description: "Analytics are available in paid plans only",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      navigate("/dashboard/analytics");
+                    }}
+                    disabled={organizationPlan === "FREE"}
+                  >
+                    {organizationPlan === "FREE" ? "Upgrade to Pro" : "View Analytics"}
                   </Button>
                 </CardContent>
               </Card>

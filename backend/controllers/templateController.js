@@ -21,8 +21,8 @@ const createCertificateTemplate = async (req, res) => {
     const canCreateCustom = organization?.planId?.permissions?.customTemplates || isPro;
     const isFreePlan = ["FREE", "BASIC", "FREE_PLAN"].includes(planName) || ["FREE", "BASIC"].includes(subPlan);
 
-    // ❌ Create Template option must be completely DISABLED for users without permission
-    if (!canCreateCustom) {
+    // ❌ FREE users CANNOT create templates - they can only edit the 2 predefined ones
+    if (isFreePlan || !canCreateCustom) {
       return res.status(403).json({
         success: false,
         message: "🔒 Upgrade to Pro to create unlimited templates"
@@ -269,11 +269,17 @@ const updateCertificateTemplate = async (req, res) => {
     }
 
     // ✏️ FREE users can edit/save ONLY up to 2 templates
-    if (organization.subscriptionPlan === "FREE") {
+    if (organization.subscriptionPlan === "FREE" ||
+      ["FREE", "BASIC", "FREE_PLAN"].includes(organization.planId?.planName || "")) {
       const savedTemplatesCount = await CertificateTemplate.countDocuments({ orgId: orgId });
-      // If it's an update to an existing one they own, it's fine.
-      // But if they are somehow bypassing and trying to save a new one, we check limit.
-      // Actually, update is always for an existing ID.
+
+      // If they already have 2 templates and this is not an update to one of them, block it
+      if (savedTemplatesCount >= 2 && !template) {
+        return res.status(403).json({
+          success: false,
+          message: "Free plan allows editing & saving only 2 templates. Upgrade to unlock unlimited templates."
+        });
+      }
     }
 
     // Update fields

@@ -31,6 +31,7 @@ import SavedTemplates from "./pages/SavedTemplates";
 import OrganizationOverview from "./pages/OrganizationOverview";
 import PaymentQR from "./pages/PaymentQR";
 import TeamMembers from "./pages/TeamMembers";
+import AdminPage from "./pages/AdminPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -64,6 +65,7 @@ const App = () => (
           <Route path="/dashboard/templates/saved" element={<SavedTemplates />} />
           <Route path="/dashboard/templates" element={<Templates />} />
           <Route path="/dashboard/team" element={<TeamMembers />} />
+          <Route path="/dashboard/admin" element={<AdminPage />} />
           <Route path="/master-dashboard" element={<MasterDashboard />} />
           <Route path="/master-dashboard/organizations" element={<MasterDashboard />} />
           <Route path="/master-dashboard/organizations/:id" element={<OrganizationDetail />} />

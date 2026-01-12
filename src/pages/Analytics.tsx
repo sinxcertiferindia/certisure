@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,35 +13,249 @@ import {
   AlertCircle,
   FileCheck,
   Shield,
-  FileText
+  FileText,
 } from "lucide-react";
 import { AppSidebar } from "@/components/layout/AppSidebar";
-import { analyticsData, reportData } from "@/data/dashboardSampleData";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
+import api from "@/services/api";
 
-
+interface AnalyticsData {
+  totalCertificates: number;
+  activeCertificates: number;
+  pendingCertificates: number;
+  expiredCertificates: number;
+  revokedCertificates: number;
+  issuedToday: number;
+  issuedThisMonth: number;
+  byCourse: { courseName: string; count: number }[];
+  byTemplate: { templateName: string; count: number }[];
+  byTeamMember: { name: string; count: number }[];
+  monthlyTrends: { month: string; count: number }[];
+}
 
 const Analytics = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [timeRange, setTimeRange] = useState<string>("month");
+  const { toast } = useToast();
+
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [organizationPlan, setOrganizationPlan] = useState<string>("");
+
+  useEffect(() => {
+    loadAnalyticsData();
+  }, []);
+
+  const loadAnalyticsData = async () => {
+    try {
+      setIsLoading(true);
+
+      // Check user plan first
+      const userResponse = await api.get("/users/me");
+      if (userResponse.data.success) {
+        const plan = userResponse.data.data.organization?.plan?.planName ||
+          userResponse.data.data.organization?.subscriptionPlan || "FREE";
+        setOrganizationPlan(plan);
+
+        // Block FREE users
+        if (plan === "FREE") {
+          toast({
+            title: "Upgrade Required",
+            description: "Analytics are available in paid plans only",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      // Fetch all certificates
+      const certsResponse = await api.get("/certificate");
+      if (!certsResponse.data.success) {
+        throw new Error("Failed to fetch certificates");
+      }
+
+      const certificates = certsResponse.data.data || [];
+
+      // Calculate analytics
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const totalCertificates = certificates.length;
+      const activeCertificates = certificates.filter((c: any) => c.status === "ACTIVE" || c.status === "active").length;
+      const pendingCertificates = certificates.filter((c: any) => c.status === "PENDING" || c.status === "pending").length;
+      const expiredCertificates = certificates.filter((c: any) => {
+        if (c.expiryDate) {
+          return new Date(c.expiryDate) < now;
+        }
+        return false;
+      }).length;
+      const revokedCertificates = certificates.filter((c: any) => c.status === "REVOKED" || c.status === "revoked").length;
+
+      const issuedToday = certificates.filter((c: any) => new Date(c.createdAt) >= startOfToday).length;
+      const issuedThisMonth = certificates.filter((c: any) => new Date(c.createdAt) >= startOfMonth).length;
+
+      // Group by course
+      const courseMap = new Map<string, number>();
+      certificates.forEach((c: any) => {
+        const course = c.courseName || "Unknown";
+        courseMap.set(course, (courseMap.get(course) || 0) + 1);
+      });
+      const byCourse = Array.from(courseMap.entries())
+        .map(([courseName, count]) => ({ courseName, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      // Group by template
+      const templateMap = new Map<string, number>();
+      certificates.forEach((c: any) => {
+        const template = c.templateId?.templateName || "Default Template";
+        templateMap.set(template, (templateMap.get(template) || 0) + 1);
+      });
+      const byTemplate = Array.from(templateMap.entries())
+        .map(([templateName, count]) => ({ templateName, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      // Group by team member
+      const teamMap = new Map<string, number>();
+      certificates.forEach((c: any) => {
+        const name = c.issuedBy?.name || "Unknown";
+        teamMap.set(name, (teamMap.get(name) || 0) + 1);
+      });
+      const byTeamMember = Array.from(teamMap.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      // Monthly trends (last 6 months)
+      const monthlyTrends: { month: string; count: number }[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+        const monthName = monthStart.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        const count = certificates.filter((c: any) => {
+          const createdAt = new Date(c.createdAt);
+          return createdAt >= monthStart && createdAt <= monthEnd;
+        }).length;
+        monthlyTrends.push({ month: monthName, count });
+      }
+
+      setAnalyticsData({
+        totalCertificates,
+        activeCertificates,
+        pendingCertificates,
+        expiredCertificates,
+        revokedCertificates,
+        issuedToday,
+        issuedThisMonth,
+        byCourse,
+        byTemplate,
+        byTeamMember,
+        monthlyTrends,
+      });
+    } catch (error: any) {
+      console.error("Failed to load analytics:", error);
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to load analytics data",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleExportReport = () => {
-    console.log("Export Report - Sample Data:", reportData);
-    // TODO: Generate and download report
+    if (!analyticsData) return;
+
+    const reportData = {
+      generatedAt: new Date().toISOString(),
+      timeRange,
+      ...analyticsData,
+    };
+
+    const dataStr = JSON.stringify(reportData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `analytics-report-${new Date().toISOString().split("T")[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Report Exported",
+      description: "Analytics report has been downloaded successfully",
+    });
   };
+
+  // Empty state
+  if (!isLoading && organizationPlan === "FREE") {
+    return (
+      <div className="min-h-screen bg-background flex">
+        <AppSidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
+        <main className={`flex-1 ${sidebarCollapsed ? "ml-20" : "ml-64"} transition-all duration-300`}>
+          <div className="flex items-center justify-center min-h-screen p-6">
+            <Card className="max-w-md">
+              <CardContent className="p-8 text-center">
+                <BarChart3 className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
+                <h3 className="text-xl font-semibold mb-2">Analytics Unavailable</h3>
+                <p className="text-muted-foreground mb-4">
+                  Analytics are available in paid plans only. Upgrade to Pro or Enterprise to access detailed analytics and insights.
+                </p>
+                <Button variant="hero">Upgrade to Pro</Button>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // No data state
+  if (!isLoading && analyticsData && analyticsData.totalCertificates === 0) {
+    return (
+      <div className="min-h-screen bg-background flex">
+        <AppSidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
+        <main className={`flex-1 ${sidebarCollapsed ? "ml-20" : "ml-64"} transition-all duration-300`}>
+          <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-xl border-b border-border px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
+                <Badge variant="outline">No Data</Badge>
+              </div>
+            </div>
+          </header>
+          <div className="flex items-center justify-center min-h-[calc(100vh-80px)] p-6">
+            <Card className="max-w-md">
+              <CardContent className="p-8 text-center">
+                <FileCheck className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
+                <h3 className="text-xl font-semibold mb-2">No Certificates Issued Yet</h3>
+                <p className="text-muted-foreground mb-4">
+                  Analytics will appear once you start issuing certificates. Issue your first certificate to see insights and trends.
+                </p>
+                <Button variant="hero" onClick={() => window.location.href = "/dashboard/issue-certificate"}>
+                  Issue Your First Certificate
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      {/* Unified Sidebar */}
       <AppSidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
-      {/* Main Content */}
       <main className={`flex-1 ${sidebarCollapsed ? "ml-20" : "ml-64"} transition-all duration-300`}>
         {/* Header */}
         <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-xl border-b border-border px-6 py-4">
@@ -65,7 +278,7 @@ const Analytics = () => {
                   <DropdownMenuItem onClick={() => setTimeRange("year")}>Last Year</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button variant="hero" className="gap-2" onClick={handleExportReport}>
+              <Button variant="hero" className="gap-2" onClick={handleExportReport} disabled={!analyticsData}>
                 <Download className="w-4 h-4" />
                 Export Report
               </Button>
@@ -75,277 +288,275 @@ const Analytics = () => {
 
         {/* Analytics Content */}
         <div className="p-6 space-y-6">
-          {/* Overview Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card variant="feature">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Issued</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.totalIssued.toLocaleString()}
-                    </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <TrendingUp className="w-3 h-3 text-success" />
-                      <span className="text-xs text-success">+12.5%</span>
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Card key={i} variant="feature">
+                  <CardContent className="p-4">
+                    <div className="animate-pulse space-y-3">
+                      <div className="h-4 bg-muted rounded w-1/2" />
+                      <div className="h-8 bg-muted rounded w-3/4" />
                     </div>
-                  </div>
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <FileCheck className="w-5 h-5 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card variant="feature">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Active Certificates</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.activeCertificates.toLocaleString()}
-                    </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <CheckCircle2 className="w-3 h-3 text-success" />
-                      <span className="text-xs text-muted-foreground">
-                        {((analyticsData.overview.activeCertificates / analyticsData.overview.totalIssued) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="p-2 rounded-lg bg-success/10">
-                    <CheckCircle2 className="w-5 h-5 text-success" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card variant="feature">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Verification Rate</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.verificationRate}%
-                    </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <TrendingUp className="w-3 h-3 text-success" />
-                      <span className="text-xs text-success">+3.2%</span>
-                    </div>
-                  </div>
-                  <div className="p-2 rounded-lg bg-accent/10">
-                    <Shield className="w-5 h-5 text-accent" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card variant="feature">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Avg. Issue Time</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.averageIssueTime}
-                    </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <Clock className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">Processing</span>
-                    </div>
-                  </div>
-                  <div className="p-2 rounded-lg bg-secondary/10">
-                    <Clock className="w-5 h-5 text-secondary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Status Breakdown */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card variant="default">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Active</p>
-                    <p className="text-xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.activeCertificates}
-                    </p>
-                  </div>
-                  <CheckCircle2 className="w-8 h-8 text-success" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card variant="default">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Pending</p>
-                    <p className="text-xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.pendingCertificates}
-                    </p>
-                  </div>
-                  <Clock className="w-8 h-8 text-warning" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card variant="default">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Expired</p>
-                    <p className="text-xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.expiredCertificates}
-                    </p>
-                  </div>
-                  <AlertCircle className="w-8 h-8 text-muted-foreground" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card variant="default">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Revoked</p>
-                    <p className="text-xl font-bold text-foreground mt-1">
-                      {analyticsData.overview.revokedCertificates}
-                    </p>
-                  </div>
-                  <XCircle className="w-8 h-8 text-destructive" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Charts Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Certificates by Course */}
-            <Card variant="default">
-              <CardHeader>
-                <CardTitle>Certificates by Course</CardTitle>
-                <CardDescription>Distribution of certificates across different courses</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {analyticsData.distribution.byCourse.map((course, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground">{course.course}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {course.count} ({course.percentage}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className="bg-primary h-2 rounded-full transition-all"
-                          style={{ width: `${course.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Certificates by Status */}
-            <Card variant="default">
-              <CardHeader>
-                <CardTitle>Certificates by Status</CardTitle>
-                <CardDescription>Current status distribution of all certificates</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {analyticsData.distribution.byStatus.map((status, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground capitalize">{status.status}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {status.count} ({status.percentage}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full transition-all ${status.status === "active"
-                              ? "bg-success"
-                              : status.status === "pending"
-                                ? "bg-warning"
-                                : status.status === "expired"
-                                  ? "bg-muted-foreground"
-                                  : "bg-destructive"
-                            }`}
-                          style={{ width: `${status.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Monthly Trends */}
-          <Card variant="default">
-            <CardHeader>
-              <CardTitle>Monthly Issuance Trends</CardTitle>
-              <CardDescription>Certificate issuance over the past 6 months</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {analyticsData.trends.monthlyGrowth.map((month, index) => (
-                  <div key={index} className="space-y-2">
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : analyticsData ? (
+            <>
+              {/* Overview Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card variant="feature">
+                  <CardContent className="p-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-foreground">{month.month}</span>
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm text-muted-foreground">{month.count} certificates</span>
-                        {month.growth > 0 && (
-                          <Badge variant="outline" className="gap-1 text-success">
-                            <TrendingUp className="w-3 h-3" />
-                            +{month.growth}%
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-3">
-                      <div
-                        className="bg-primary h-3 rounded-full transition-all"
-                        style={{
-                          width: `${(month.count / Math.max(...analyticsData.trends.monthlyGrowth.map((m) => m.count))) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Top Organizations */}
-          {/* <Card variant="default">
-            <CardHeader>
-              <CardTitle>Top Organizations</CardTitle>
-              <CardDescription>Organizations with the most certificates issued</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {analyticsData.distribution.byOrganization.map((org, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-primary" />
-                      </div>
                       <div>
-                        <p className="font-medium text-foreground">{org.name}</p>
-                        <p className="text-xs text-muted-foreground">{org.certificates} certificates</p>
+                        <p className="text-sm text-muted-foreground">Total Issued</p>
+                        <p className="text-2xl font-bold text-foreground mt-1">
+                          {analyticsData.totalCertificates.toLocaleString()}
+                        </p>
+                        <div className="flex items-center gap-1 mt-2">
+                          <span className="text-xs text-muted-foreground">All time</span>
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <FileCheck className="w-5 h-5 text-primary" />
                       </div>
                     </div>
-                    <Badge variant="outline">{index + 1}</Badge>
-                  </div>
-                ))}
+                  </CardContent>
+                </Card>
+
+                <Card variant="feature">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Active Certificates</p>
+                        <p className="text-2xl font-bold text-foreground mt-1">
+                          {analyticsData.activeCertificates.toLocaleString()}
+                        </p>
+                        <div className="flex items-center gap-1 mt-2">
+                          <CheckCircle2 className="w-3 h-3 text-success" />
+                          <span className="text-xs text-muted-foreground">
+                            {analyticsData.totalCertificates > 0
+                              ? ((analyticsData.activeCertificates / analyticsData.totalCertificates) * 100).toFixed(1)
+                              : 0}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-success/10">
+                        <CheckCircle2 className="w-5 h-5 text-success" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card variant="feature">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Issued Today</p>
+                        <p className="text-2xl font-bold text-foreground mt-1">
+                          {analyticsData.issuedToday.toLocaleString()}
+                        </p>
+                        <div className="flex items-center gap-1 mt-2">
+                          <TrendingUp className="w-3 h-3 text-accent" />
+                          <span className="text-xs text-muted-foreground">Today</span>
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-accent/10">
+                        <Shield className="w-5 h-5 text-accent" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card variant="feature">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">This Month</p>
+                        <p className="text-2xl font-bold text-foreground mt-1">
+                          {analyticsData.issuedThisMonth.toLocaleString()}
+                        </p>
+                        <div className="flex items-center gap-1 mt-2">
+                          <Clock className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">Current month</span>
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-secondary/10">
+                        <Clock className="w-5 h-5 text-secondary" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>*/}
+
+              {/* Status Breakdown */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card variant="default">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Active</p>
+                        <p className="text-xl font-bold text-foreground mt-1">
+                          {analyticsData.activeCertificates}
+                        </p>
+                      </div>
+                      <CheckCircle2 className="w-8 h-8 text-success" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card variant="default">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Pending</p>
+                        <p className="text-xl font-bold text-foreground mt-1">
+                          {analyticsData.pendingCertificates}
+                        </p>
+                      </div>
+                      <Clock className="w-8 h-8 text-warning" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card variant="default">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Expired</p>
+                        <p className="text-xl font-bold text-foreground mt-1">
+                          {analyticsData.expiredCertificates}
+                        </p>
+                      </div>
+                      <AlertCircle className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card variant="default">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Revoked</p>
+                        <p className="text-xl font-bold text-foreground mt-1">
+                          {analyticsData.revokedCertificates}
+                        </p>
+                      </div>
+                      <XCircle className="w-8 h-8 text-destructive" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Charts Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Certificates by Course */}
+                <Card variant="default">
+                  <CardHeader>
+                    <CardTitle>Certificates by Course</CardTitle>
+                    <CardDescription>Top 5 courses by certificate count</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {analyticsData.byCourse.length > 0 ? (
+                      <div className="space-y-4">
+                        {analyticsData.byCourse.map((course, index) => {
+                          const percentage = analyticsData.totalCertificates > 0
+                            ? (course.count / analyticsData.totalCertificates) * 100
+                            : 0;
+                          return (
+                            <div key={index} className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-foreground">{course.courseName}</span>
+                                <span className="text-sm text-muted-foreground">
+                                  {course.count} ({percentage.toFixed(1)}%)
+                                </span>
+                              </div>
+                              <div className="w-full bg-muted rounded-full h-2">
+                                <div
+                                  className="bg-primary h-2 rounded-full transition-all"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">No course data available</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Certificates by Template */}
+                <Card variant="default">
+                  <CardHeader>
+                    <CardTitle>Certificates by Template</CardTitle>
+                    <CardDescription>Top 5 templates by usage</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {analyticsData.byTemplate.length > 0 ? (
+                      <div className="space-y-4">
+                        {analyticsData.byTemplate.map((template, index) => {
+                          const percentage = analyticsData.totalCertificates > 0
+                            ? (template.count / analyticsData.totalCertificates) * 100
+                            : 0;
+                          return (
+                            <div key={index} className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-foreground">{template.templateName}</span>
+                                <span className="text-sm text-muted-foreground">
+                                  {template.count} ({percentage.toFixed(1)}%)
+                                </span>
+                              </div>
+                              <div className="w-full bg-muted rounded-full h-2">
+                                <div
+                                  className="bg-success h-2 rounded-full transition-all"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">No template data available</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Monthly Trends */}
+              <Card variant="default">
+                <CardHeader>
+                  <CardTitle>Monthly Issuance Trends</CardTitle>
+                  <CardDescription>Certificate issuance over the past 6 months</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {analyticsData.monthlyTrends.length > 0 ? (
+                    <div className="space-y-4">
+                      {analyticsData.monthlyTrends.map((month, index) => {
+                        const maxCount = Math.max(...analyticsData.monthlyTrends.map((m) => m.count), 1);
+                        const percentage = (month.count / maxCount) * 100;
+                        return (
+                          <div key={index} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium text-foreground">{month.month}</span>
+                              <span className="text-sm text-muted-foreground">{month.count} certificates</span>
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-3">
+                              <div
+                                className="bg-primary h-3 rounded-full transition-all"
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">No trend data available</p>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
         </div>
       </main>
     </div>
@@ -353,4 +564,3 @@ const Analytics = () => {
 };
 
 export default Analytics;
-
