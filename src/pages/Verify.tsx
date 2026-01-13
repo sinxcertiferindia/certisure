@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Html5Qrcode } from "html5-qrcode";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 
 // Mock certificate data for demo
 const mockCertificates: Record<string, {
@@ -87,8 +89,7 @@ interface VerificationResult {
   logo?: string;
 }
 
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
+
 
 const Verify = () => {
   const [searchId, setSearchId] = useState("");
@@ -564,7 +565,7 @@ const Verify = () => {
 
                         {/* Public Action Buttons */}
                         <div className="pt-4 space-y-3">
-                          <Button variant="hero" className="w-full gap-2" onClick={handleDownloadClick}>
+                          <Button variant="default" className="w-full gap-2" onClick={handleDownloadClick}>
                             <Download className="w-4 h-4" /> Download Certificate
                           </Button>
                           <Button variant="outline" className="w-full gap-2">
