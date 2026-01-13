@@ -15,7 +15,8 @@ router.get("/all", auth, authorize(["SUPER_ADMIN"]), getAllCertificates);
 router.delete("/:certificateId", auth, authorize(["SUPER_ADMIN"]), deleteCertificate);
 
 // Public Routes
-const { verifyCertificate } = require("../controllers/certificateController");
+const { verifyCertificate, downloadCertificate } = require("../controllers/certificateController");
 router.get("/verify/:certificateId", verifyCertificate);
+router.post("/download", downloadCertificate);
 
 module.exports = router;

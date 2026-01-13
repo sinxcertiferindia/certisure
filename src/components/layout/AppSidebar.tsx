@@ -52,6 +52,7 @@ interface OrganizationData {
     subscriptionStatus: string;
     accountStatus: string;
     logo?: string;
+    certificatePrefix?: string;
     plan: PlanData;
 }
 
@@ -168,6 +169,26 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
             .join("")
             .toUpperCase()
             .slice(0, 2);
+    };
+
+    const [isEditingPrefix, setIsEditingPrefix] = useState(false);
+    const [prefixInput, setPrefixInput] = useState("");
+
+    // Initialize prefix input when org data loads
+    useEffect(() => {
+        if (organizationData?.certificatePrefix) {
+            setPrefixInput(organizationData.certificatePrefix);
+        }
+    }, [organizationData]);
+
+    const handleSavePrefix = async () => {
+        try {
+            await api.put("/org/profile", { certificatePrefix: prefixInput });
+            setOrganizationData(prev => prev ? { ...prev, certificatePrefix: prefixInput } : null);
+            setIsEditingPrefix(false);
+        } catch (error) {
+            console.error("Failed to save prefix:", error);
+        }
     };
 
     return (
@@ -346,17 +367,34 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
                                     </div>
                                     <div>
                                         <p className="text-sm font-medium text-muted-foreground">
-                                            Plan Status
+                                            Certificate Prefix
                                         </p>
-                                        <Badge
-                                            variant={
-                                                organizationData.subscriptionStatus === "ACTIVE"
-                                                    ? "verified"
-                                                    : "warning"
-                                            }
-                                        >
-                                            {organizationData.subscriptionStatus}
-                                        </Badge>
+                                        {isEditingPrefix ? (
+                                            <div className="flex gap-2">
+                                                <input
+                                                    className="border rounded px-2 py-1 text-sm uppercase w-full"
+                                                    value={prefixInput}
+                                                    onChange={(e) => setPrefixInput(e.target.value.toUpperCase())}
+                                                    maxLength={10}
+                                                />
+                                                <Button size="sm" onClick={handleSavePrefix}>Save</Button>
+                                                <Button size="sm" variant="ghost" onClick={() => setIsEditingPrefix(false)}>Cancel</Button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-mono font-bold bg-muted px-2 py-1 rounded">
+                                                    {organizationData.certificatePrefix || "NOT SET"}
+                                                </span>
+                                                {userData.role === "ORG_ADMIN" && (
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setIsEditingPrefix(true)}>
+                                                        <Settings className="w-3 h-3" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        )}
+                                        {!organizationData.certificatePrefix && (
+                                            <p className="text-xs text-red-500 mt-1">Required for issuing certificates</p>
+                                        )}
                                     </div>
                                     <div>
                                         <p className="text-sm font-medium text-muted-foreground">

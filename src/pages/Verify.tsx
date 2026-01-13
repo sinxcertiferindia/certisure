@@ -87,6 +87,9 @@ interface VerificationResult {
   logo?: string;
 }
 
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
+
 const Verify = () => {
   const [searchId, setSearchId] = useState("");
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
@@ -94,8 +97,103 @@ const Verify = () => {
   const [notFound, setNotFound] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+
+  // Download Logic States
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  const [downloadInputs, setDownloadInputs] = useState({ studentName: "", orgName: "" });
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+  const certificateRef = useRef<HTMLDivElement>(null);
+
   const qrCodeRef = useRef<Html5Qrcode | null>(null);
   const scannerId = "qr-reader";
+
+  const handleDownloadClick = () => {
+    setDownloadInputs({ studentName: "", orgName: "" });
+    setDownloadError("");
+    setShowDownloadDialog(true);
+  };
+
+  const confirmDownload = async () => {
+    if (!verificationResult) return;
+
+    // Validate inputs
+    if (!downloadInputs.studentName.trim() || !downloadInputs.orgName.trim()) {
+      setDownloadError("Both Name and Organization are required");
+      return;
+    }
+
+    setIsDownloading(true);
+    setDownloadError("");
+
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || '/api';
+      // Validate with Backend
+      const response = await fetch(`${apiUrl}/certificate/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          certificateUniqueId: verificationResult.id, // Use displayed ID
+          studentName: downloadInputs.studentName,
+          orgName: downloadInputs.orgName
+        })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        setDownloadError(data.message || "Details do not match our records.");
+        setIsDownloading(false);
+        return;
+      }
+
+      // Backend Validated - Generate PDF Client Side (using existing visual rendering)
+      setShowDownloadDialog(false);
+
+      await generatePDF();
+
+    } catch (error) {
+      console.error("Download failed:", error);
+      setDownloadError("Failed to verifying details. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const generatePDF = async () => {
+    if (!certificateRef.current) return;
+
+    try {
+      // Find the certificate element
+      const element = certificateRef.current;
+
+      // Use html2canvas
+      const canvas = await html2canvas(element, {
+        scale: 2, // High quality
+        useCORS: true, // For images
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+
+      // Determine orientation based on dimensions
+      const orientation = canvas.width > canvas.height ? 'l' : 'p';
+
+      const pdf = new jsPDF({
+        orientation: orientation,
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`${verificationResult?.id || 'Certificate'}.pdf`);
+
+    } catch (e) {
+      console.error("PDF Generation Error:", e);
+      alert("Failed to generate PDF. Please try again.");
+    }
+  };
 
   const handleVerify = async () => {
     if (!searchId.trim()) return;
@@ -364,7 +462,7 @@ const Verify = () => {
                     <div className="grid lg:grid-cols-3">
                       {/* Certificate Visual Rendering */}
                       <div className="lg:col-span-2 bg-white p-4 border-r">
-                        <div className="aspect-[1.414/1] w-full relative shadow-lg mx-auto overflow-hidden border">
+                        <div ref={certificateRef} className="aspect-[1.414/1] w-full relative shadow-lg mx-auto overflow-hidden border">
                           {verificationResult.renderData ? (
                             <div className="w-full h-full relative" style={{
                               backgroundColor: verificationResult.renderData.backgroundColor || '#ffffff',
@@ -466,7 +564,7 @@ const Verify = () => {
 
                         {/* Public Action Buttons */}
                         <div className="pt-4 space-y-3">
-                          <Button variant="hero" className="w-full gap-2">
+                          <Button variant="hero" className="w-full gap-2" onClick={handleDownloadClick}>
                             <Download className="w-4 h-4" /> Download Certificate
                           </Button>
                           <Button variant="outline" className="w-full gap-2">
@@ -583,9 +681,59 @@ const Verify = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Secure Download Dialog */}
+      <Dialog open={showDownloadDialog} onOpenChange={setShowDownloadDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Download Certificate</DialogTitle>
+            <DialogDescription>
+              Please verify your identity details to download this certificate.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Student / Recipient Name</label>
+              <Input
+                placeholder="Enter full name as on certificate"
+                value={downloadInputs.studentName}
+                onChange={(e) => setDownloadInputs(prev => ({ ...prev, studentName: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Organization Name</label>
+              <Input
+                placeholder="Enter issuing organization name"
+                value={downloadInputs.orgName}
+                onChange={(e) => setDownloadInputs(prev => ({ ...prev, orgName: e.target.value }))}
+              />
+            </div>
+            {downloadError && (
+              <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md flex items-center gap-2">
+                <XCircle className="w-4 h-4" /> {downloadError}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setShowDownloadDialog(false)}>Cancel</Button>
+            <Button onClick={confirmDownload} disabled={isDownloading}>
+              {isDownloading ? (
+                <>
+                  <span className="animate-spin mr-2">⏳</span> Generating...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-2" /> Download PDF
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Footer />
     </div>
   );
 };
 
 export default Verify;
+

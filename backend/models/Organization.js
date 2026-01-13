@@ -79,6 +79,14 @@ const organizationSchema = new Schema(
       trim: true,
       default: null, // Logo URL or path
     },
+    certificatePrefix: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      minlength: [3, 'Prefix must be at least 3 characters'],
+      maxlength: [10, 'Prefix cannot exceed 10 characters'],
+      match: [/^[A-Z0-9]+$/, 'Prefix must be alphanumeric'],
+    },
   },
   {
     timestamps: true, // Automatically adds createdAt and updatedAt

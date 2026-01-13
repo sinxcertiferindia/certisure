@@ -347,6 +347,19 @@ const updateOrganizationProfile = async (req, res) => {
     if (name) organization.name = name;
     if (type) organization.type = type;
 
+    // Handle certificatePrefix update
+    if (req.body.certificatePrefix) {
+      const prefix = req.body.certificatePrefix.toUpperCase();
+      // Validate prefix format
+      if (!/^[A-Z0-9]+$/.test(prefix) || prefix.length < 3 || prefix.length > 10) {
+        return res.status(400).json({
+          success: false,
+          message: "Prefix must be alphanumeric and between 3-10 characters"
+        });
+      }
+      organization.certificatePrefix = prefix;
+    }
+
     // Handle logo upload - store as base64 data URL or file path
     if (logo) {
       // Logo can be a base64 string or URL

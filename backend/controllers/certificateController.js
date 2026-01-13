@@ -52,6 +52,14 @@ const issueCertificate = async (req, res) => {
       });
     }
 
+    // Check for certificatePrefix
+    if (!organization.certificatePrefix) {
+      return res.status(403).json({
+        success: false,
+        message: "Please set certificate ID prefix in organization settings."
+      });
+    }
+
     // Determine plan type and permissions from Plan model
     const planName = organization.planId?.planName || "";
     const subPlan = organization.subscriptionPlan || "";
@@ -135,6 +143,38 @@ const issueCertificate = async (req, res) => {
       }
     }
 
+    // Generate Unique readable ID
+    const currentYear = new Date().getFullYear();
+    let uniqueId = "";
+    let isUnique = false;
+
+    // Safety break counter
+    let attempts = 0;
+    while (!isUnique && attempts < 10) {
+      // Generate 5 random alphanumeric characters
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let randomStr = '';
+      for (let i = 0; i < 5; i++) {
+        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      uniqueId = `${organization.certificatePrefix}-${currentYear}-${randomStr}`;
+
+      // Check collision
+      const existing = await Certificate.findOne({ certificateUniqueId: uniqueId });
+      if (!existing) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
+    if (!isUnique) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate unique certificate ID. Please try again."
+      });
+    }
+
     // Create certificate - orgId comes from JWT, never from body
     const certificateData = {
       orgId: orgId, // 🔐 From JWT only
@@ -147,6 +187,8 @@ const issueCertificate = async (req, res) => {
       expiryDate: expiryDate ? new Date(expiryDate) : undefined,
       status: "ACTIVE",
       certificateId: uuidv4(), // Generate UUID for certificate ID
+      certificateUniqueId: uniqueId,
+      issuedYear: currentYear,
       certificateType: certificateType || "Completion", // Required for FREE, default for paid
     };
 
@@ -552,7 +594,16 @@ const verifyCertificate = async (req, res) => {
       });
     }
 
-    const certificate = await Certificate.findOne({ certificateId })
+    // Try finding by UUID or Unique Readable ID
+    // Readable ID should be case-insensitive (stored as uppercase)
+    const query = {
+      $or: [
+        { certificateId: certificateId },
+        { certificateUniqueId: certificateId.toUpperCase() }
+      ]
+    };
+
+    const certificate = await Certificate.findOne(query)
       .populate("orgId", "name logo website subscriptionPlan")
       .select("-issuedBy"); // Don't expose issuer user ID
 
@@ -576,6 +627,71 @@ const verifyCertificate = async (req, res) => {
   }
 };
 
+/**
+ * Verify and authorize download of certificate (Public)
+ * Validates details before allowing download
+ */
+const downloadCertificate = async (req, res) => {
+  try {
+    const { certificateUniqueId, studentName, orgName } = req.body;
+
+    if (!certificateUniqueId || !studentName || !orgName) {
+      return res.status(400).json({
+        success: false,
+        message: "Certificate ID, Student Name, and Organization Name are required"
+      });
+    }
+
+    // Find certificate
+    const query = {
+      $or: [
+        { certificateId: certificateUniqueId },
+        { certificateUniqueId: certificateUniqueId.toUpperCase() }
+      ]
+    };
+
+    const certificate = await Certificate.findOne(query).populate("orgId");
+
+    if (!certificate) {
+      return res.status(404).json({
+        success: false,
+        message: "Certificate details do not match our records."
+      });
+    }
+
+    // Validate Student Name (Case Insensitive Fuzzy Match?) - Strict as per req? 
+    // "Student name matches certificate"
+    if (certificate.recipientName.trim().toLowerCase() !== studentName.trim().toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: "Certificate details do not match our records." // vague security message
+      });
+    }
+
+    // Validate Organization Name
+    if (certificate.orgId.name.trim().toLowerCase() !== orgName.trim().toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: "Certificate details do not match our records."
+      });
+    }
+
+    // Success - Return render data
+    res.json({
+      success: true,
+      message: "Verification successful",
+      data: certificate
+    });
+
+  } catch (error) {
+    console.error("Download certificate error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to process download request"
+    });
+  }
+};
+
 module.exports = {
   issueCertificate,
   getCertificates,
@@ -583,4 +699,5 @@ module.exports = {
   getAllCertificates,
   deleteCertificate,
   verifyCertificate,
+  downloadCertificate,
 };

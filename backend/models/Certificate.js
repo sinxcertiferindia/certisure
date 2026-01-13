@@ -63,6 +63,15 @@ const certificateSchema = new Schema(
       default: () => uuidv4(), // Auto-generate UUID if not provided
       index: true, // Critical for certificate verification
     },
+    certificateUniqueId: {
+      type: String,
+      unique: true,
+      sparse: true, // Sparse because old certificates might not have it immediately (unless we migrate)
+      index: true,
+    },
+    issuedYear: {
+      type: Number,
+    },
     status: {
       type: String,
       enum: ['ACTIVE', 'REVOKED', 'EXPIRED'],
