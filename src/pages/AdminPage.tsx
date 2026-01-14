@@ -17,10 +17,17 @@ import {
     TrendingUp,
     Shield,
     AlertCircle,
+    Plus,
+    Trash2,
+    Save,
+    X,
+    Upload,
 } from "lucide-react";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface OrganizationData {
     _id: string;
@@ -31,6 +38,8 @@ interface OrganizationData {
     subscriptionStatus: string;
     accountStatus: string;
     logo?: string;
+    certificatePrefixes?: string[];
+    defaultCertificatePrefix?: string;
     subscriptionStartDate?: string;
     subscriptionEndDate?: string;
     createdAt: string;
@@ -63,6 +72,18 @@ const AdminPage = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [userRole, setUserRole] = useState<string>("");
 
+    // Edit Mode State
+    const [isEditing, setIsEditing] = useState(false);
+    const [editData, setEditData] = useState({
+        name: "",
+        type: "",
+        logo: "",
+        certificatePrefixes: [] as string[],
+        defaultCertificatePrefix: "",
+    });
+    const [newPrefix, setNewPrefix] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     useEffect(() => {
         loadAdminData();
     }, []);
@@ -90,29 +111,57 @@ const AdminPage = () => {
             }
 
             // Get organization profile
-            const orgResponse = await api.get("/organization/profile");
-            if (orgResponse.data.success) {
-                setOrganizationData(orgResponse.data.data);
+            try {
+                const orgResponse = await api.get("/org/profile");
+                if (orgResponse.data.success) {
+                    const org = orgResponse.data.data;
+                    setOrganizationData(org);
+
+                    // Set initial edit data
+                    setEditData({
+                        name: org.name || "",
+                        type: org.type || "",
+                        logo: org.logo || "",
+                        certificatePrefixes: org.certificatePrefixes || [],
+                        defaultCertificatePrefix: org.defaultCertificatePrefix || "",
+                    });
+                }
+            } catch (error) {
+                console.error("Failed to load org profile:", error);
             }
 
-            // Get organization statistics
-            // Certificates count
-            const certsResponse = await api.get("/certificate");
-            const certificatesCount = certsResponse.data.success ? certsResponse.data.data.length : 0;
+            // Fetch statistics independently
+            let usersCount = 0;
+            let certificatesCount = 0;
+            let templatesCount = 0;
 
-            // Team members count
-            const teamResponse = await api.get("/team/members");
-            const usersCount = teamResponse.data.success ? teamResponse.data.data.length : 0;
+            const results = await Promise.allSettled([
+                api.get("/certificates"),
+                api.get("/team/list"), // Fixed endpoint
+                api.get("/templates/certificate") // Fixed endpoint
+            ]);
 
-            // Templates count
-            const templatesResponse = await api.get("/templates");
-            const templatesCount = templatesResponse.data.success ? templatesResponse.data.data.length : 0;
+            // Certificates
+            if (results[0].status === "fulfilled" && results[0].value.data.success) {
+                certificatesCount = results[0].value.data.data.length;
+            }
+
+            // Team Members
+            if (results[1].status === "fulfilled" && results[1].value.data.success) {
+                usersCount = results[1].value.data.data.length;
+            }
+
+            // Templates
+            if (results[2].status === "fulfilled" && results[2].value.data.success) {
+                templatesCount = results[2].value.data.data.length;
+            }
 
             setStats({
                 usersCount,
                 certificatesCount,
                 templatesCount,
             });
+
         } catch (error: any) {
             console.error("Failed to load admin data:", error);
             toast({
@@ -146,6 +195,81 @@ const AdminPage = () => {
             month: "long",
             day: "numeric",
         });
+    };
+
+    const handleSaveProfile = async () => {
+        try {
+            setIsSubmitting(true);
+            const response = await api.put("/org/profile", editData);
+            if (response.data.success) {
+                setOrganizationData(response.data.data);
+                setIsEditing(false);
+                toast({
+                    title: "Success",
+                    description: "Organization profile updated successfully",
+                });
+            }
+        } catch (error: any) {
+            console.error("Failed to update profile:", error);
+            toast({
+                title: "Error",
+                description: error.response?.data?.message || "Failed to update profile",
+                variant: "destructive",
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleAddPrefix = () => {
+        if (!newPrefix) return;
+        const prefix = newPrefix.toUpperCase().trim();
+        if (!/^[A-Z0-9]+$/.test(prefix)) {
+            toast({
+                title: "Invalid Prefix",
+                description: "Prefix must be alphanumeric",
+                variant: "destructive",
+            });
+            return;
+        }
+        if (editData.certificatePrefixes.includes(prefix)) {
+            toast({
+                title: "Duplicate Prefix",
+                description: "This prefix already exists",
+                variant: "destructive",
+            });
+            return;
+        }
+        setEditData({
+            ...editData,
+            certificatePrefixes: [...editData.certificatePrefixes, prefix],
+            defaultCertificatePrefix: editData.defaultCertificatePrefix || prefix
+        });
+        setNewPrefix("");
+    };
+
+    const handleRemovePrefix = (prefix: string) => {
+        const updatedPrefixes = editData.certificatePrefixes.filter(p => p !== prefix);
+        let updatedDefault = editData.defaultCertificatePrefix;
+        if (updatedDefault === prefix) {
+            updatedDefault = updatedPrefixes.length > 0 ? updatedPrefixes[0] : "";
+        }
+        setEditData({
+            ...editData,
+            certificatePrefixes: updatedPrefixes,
+            defaultCertificatePrefix: updatedDefault
+        });
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setEditData({ ...editData, logo: reader.result as string });
+            };
+            reader.readAsDataURL(file);
+        }
     };
 
     if (isLoading) {
@@ -200,47 +324,182 @@ const AdminPage = () => {
                                         </CardTitle>
                                         <CardDescription>View and manage your organization details</CardDescription>
                                     </div>
-                                    {organizationData?.logo && (
-                                        <div className="w-16 h-16 rounded-lg overflow-hidden border border-border">
-                                            <img src={organizationData.logo} alt="Organization Logo" className="w-full h-full object-cover" />
-                                        </div>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {!isEditing ? (
+                                            <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                                                <Settings className="w-4 h-4 mr-2" />
+                                                Edit Settings
+                                            </Button>
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
+                                                    <X className="w-4 h-4 mr-2" />
+                                                    Cancel
+                                                </Button>
+                                                <Button variant="hero" size="sm" onClick={handleSaveProfile} disabled={isSubmitting}>
+                                                    <Save className="w-4 h-4 mr-2" />
+                                                    {isSubmitting ? "Saving..." : "Save Changes"}
+                                                </Button>
+                                            </div>
+                                        )}
+                                        {organizationData?.logo && !isEditing && (
+                                            <div className="w-16 h-16 rounded-lg overflow-hidden border border-border">
+                                                <img src={organizationData.logo} alt="Organization Logo" className="w-full h-full object-cover" />
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </CardHeader>
                             <CardContent>
                                 {organizationData ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
-                                            <Building2 className="w-5 h-5 text-muted-foreground mt-0.5" />
-                                            <div>
-                                                <p className="text-xs text-muted-foreground mb-1">Organization Name</p>
-                                                <p className="text-sm font-medium text-foreground">{organizationData.name}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
-                                            <Mail className="w-5 h-5 text-muted-foreground mt-0.5" />
-                                            <div>
-                                                <p className="text-xs text-muted-foreground mb-1">Email</p>
-                                                <p className="text-sm font-medium text-foreground">{organizationData.email}</p>
-                                            </div>
-                                        </div>
-                                        {organizationData.type && (
-                                            <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
-                                                <Settings className="w-5 h-5 text-muted-foreground mt-0.5" />
-                                                <div>
-                                                    <p className="text-xs text-muted-foreground mb-1">Organization Type</p>
-                                                    <p className="text-sm font-medium text-foreground">{organizationData.type}</p>
+                                    isEditing ? (
+                                        <div className="space-y-6">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="orgName">Organization Name</Label>
+                                                    <Input
+                                                        id="orgName"
+                                                        value={editData.name}
+                                                        onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                                                        placeholder="Enter organization name"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="orgType">Organization Type</Label>
+                                                    <Input
+                                                        id="orgType"
+                                                        value={editData.type}
+                                                        onChange={(e) => setEditData({ ...editData, type: e.target.value })}
+                                                        placeholder="e.g. Education, Corporate, Non-profit"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2 md:col-span-2">
+                                                    <Label>Organization Logo</Label>
+                                                    <div className="flex items-center gap-4">
+                                                        {editData.logo && (
+                                                            <div className="w-20 h-20 rounded-lg overflow-hidden border border-border">
+                                                                <img src={editData.logo} alt="Logo Preview" className="w-full h-full object-cover" />
+                                                            </div>
+                                                        )}
+                                                        <div className="flex-1">
+                                                            <div className="relative">
+                                                                <Input
+                                                                    type="file"
+                                                                    accept="image/*"
+                                                                    onChange={handleFileChange}
+                                                                    className="cursor-pointer"
+                                                                />
+                                                                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                                                                    <Upload className="w-4 h-4 text-muted-foreground" />
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground mt-1">Recommended size: 512x512px. PNG or JPG.</p>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        )}
-                                        <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
-                                            <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
-                                            <div>
-                                                <p className="text-xs text-muted-foreground mb-1">Member Since</p>
-                                                <p className="text-sm font-medium text-foreground">{formatDate(organizationData.createdAt)}</p>
+
+                                            <div className="space-y-4 border-t pt-6">
+                                                <div>
+                                                    <h3 className="text-sm font-semibold mb-1">Certificate ID Prefixes</h3>
+                                                    <p className="text-xs text-muted-foreground mb-4">Add one or more prefixes for your certificates (e.g., TECH, CERT, ACAD)</p>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    <div className="space-y-3">
+                                                        <Label>Add New Prefix</Label>
+                                                        <div className="flex gap-2">
+                                                            <Input
+                                                                value={newPrefix}
+                                                                onChange={(e) => setNewPrefix(e.target.value.toUpperCase())}
+                                                                placeholder="e.g. CERT"
+                                                                maxLength={10}
+                                                            />
+                                                            <Button type="button" variant="outline" onClick={handleAddPrefix}>
+                                                                <Plus className="w-4 h-4" />
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-3">
+                                                        <Label>Active Prefixes</Label>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {editData.certificatePrefixes.map((prefix) => (
+                                                                <Badge
+                                                                    key={prefix}
+                                                                    variant={editData.defaultCertificatePrefix === prefix ? "verified" : "outline"}
+                                                                    className="pl-3 pr-1 py-1 gap-2 cursor-pointer"
+                                                                    onClick={() => setEditData({ ...editData, defaultCertificatePrefix: prefix })}
+                                                                >
+                                                                    {prefix}
+                                                                    {editData.defaultCertificatePrefix === prefix && " (Default)"}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleRemovePrefix(prefix);
+                                                                        }}
+                                                                        className="p-0.5 hover:bg-muted rounded"
+                                                                    >
+                                                                        <X className="w-3 h-3" />
+                                                                    </button>
+                                                                </Badge>
+                                                            ))}
+                                                            {editData.certificatePrefixes.length === 0 && (
+                                                                <p className="text-xs text-destructive">No prefixes added. At least one required.</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                                                <Building2 className="w-5 h-5 text-muted-foreground mt-0.5" />
+                                                <div>
+                                                    <p className="text-xs text-muted-foreground mb-1">Organization Name</p>
+                                                    <p className="text-sm font-medium text-foreground">{organizationData.name}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                                                <Mail className="w-5 h-5 text-muted-foreground mt-0.5" />
+                                                <div>
+                                                    <p className="text-xs text-muted-foreground mb-1">Email</p>
+                                                    <p className="text-sm font-medium text-foreground">{organizationData.email}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                                                <Shield className="w-5 h-5 text-muted-foreground mt-0.5" />
+                                                <div>
+                                                    <p className="text-xs text-muted-foreground mb-1">Cert ID Prefixes</p>
+                                                    <div className="flex flex-wrap gap-1 mt-1">
+                                                        {organizationData.certificatePrefixes?.map(p => (
+                                                            <Badge key={p} variant={organizationData.defaultCertificatePrefix === p ? "verified" : "outline"} className="text-[10px]">
+                                                                {p}{organizationData.defaultCertificatePrefix === p && "*"}
+                                                            </Badge>
+                                                        )) || <span className="text-sm text-destructive font-semibold">Not Set</span>}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {organizationData.type && (
+                                                <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                                                    <Settings className="w-5 h-5 text-muted-foreground mt-0.5" />
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground mb-1">Organization Type</p>
+                                                        <p className="text-sm font-medium text-foreground">{organizationData.type}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                                                <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
+                                                <div>
+                                                    <p className="text-xs text-muted-foreground mb-1">Member Since</p>
+                                                    <p className="text-sm font-medium text-foreground">{formatDate(organizationData.createdAt)}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
                                 ) : (
                                     <div className="text-center py-8">
                                         <AlertCircle className="w-12 h-12 mx-auto text-muted-foreground/50 mb-3" />

@@ -8,7 +8,7 @@ const getOrganizationProfile = async (req, res) => {
     const orgId = req.user.orgId;
 
     const organization = await Organization.findById(orgId)
-      .select("name type email subscriptionPlan subscriptionStatus logo planId")
+      .select("name type email subscriptionPlan subscriptionStatus logo planId certificatePrefixes defaultCertificatePrefix")
       .populate("planId");
 
     if (!organization) {
@@ -333,7 +333,7 @@ const deleteOrganization = async (req, res) => {
 const updateOrganizationProfile = async (req, res) => {
   try {
     const orgId = req.user.orgId;
-    const { name, type, logo } = req.body;
+    const { name, type, logo, website, certificatePrefixes, defaultCertificatePrefix } = req.body;
 
     const organization = await Organization.findById(orgId);
     if (!organization) {
@@ -345,46 +345,66 @@ const updateOrganizationProfile = async (req, res) => {
 
     // Update fields if provided
     if (name) organization.name = name;
-    if (type) organization.type = type;
+    if (type !== undefined) organization.type = type;
+    if (website !== undefined) organization.website = website;
+    if (logo) organization.logo = logo;
 
-    // Handle certificatePrefix update
-    if (req.body.certificatePrefix) {
-      const prefix = req.body.certificatePrefix.toUpperCase();
-      // Validate prefix format
-      if (!/^[A-Z0-9]+$/.test(prefix) || prefix.length < 3 || prefix.length > 10) {
-        return res.status(400).json({
-          success: false,
-          message: "Prefix must be alphanumeric and between 3-10 characters"
-        });
-      }
-      organization.certificatePrefix = prefix;
+    // Handle certificatePrefixes update
+    if (certificatePrefixes && Array.isArray(certificatePrefixes)) {
+      const validatedPrefixes = certificatePrefixes
+        .map(p => typeof p === 'string' ? p.toUpperCase().trim() : '')
+        .filter(p => /^[A-Z0-9]+$/.test(p) && p.length >= 2 && p.length <= 10);
+
+      organization.certificatePrefixes = validatedPrefixes;
     }
 
-    // Handle logo upload - store as base64 data URL or file path
-    if (logo) {
-      // Logo can be a base64 string or URL
-      // For now, we'll store it directly
-      // In production, you'd want to:
-      // 1. Validate image format and size
-      // 2. Resize/optimize the image
-      // 3. Store in cloud storage (S3, Cloudinary, etc.)
-      // 4. Save the URL to database
-      organization.logo = logo;
+    // Ensure certificatePrefixes is an array before using .includes()
+    if (!Array.isArray(organization.certificatePrefixes)) {
+      organization.certificatePrefixes = [];
+    }
+
+    // Handle defaultCertificatePrefix update
+    if (defaultCertificatePrefix) {
+      const defPrefix = defaultCertificatePrefix.toUpperCase().trim();
+      if (/^[A-Z0-9]+$/.test(defPrefix)) {
+        organization.defaultCertificatePrefix = defPrefix;
+
+        // Ensure it is in the list of prefixes
+        if (!organization.certificatePrefixes.includes(defPrefix)) {
+          organization.certificatePrefixes.push(defPrefix);
+        }
+      }
+    }
+
+    // Deprecated single prefix field support
+    if (req.body.certificatePrefix && !certificatePrefixes) {
+      const prefix = req.body.certificatePrefix.toUpperCase().trim();
+      if (/^[A-Z0-9]+$/.test(prefix) && prefix.length >= 2 && prefix.length <= 10) {
+        if (!organization.certificatePrefixes.includes(prefix)) {
+          organization.certificatePrefixes.push(prefix);
+        }
+        organization.defaultCertificatePrefix = prefix;
+      }
     }
 
     await organization.save();
 
     // Log audit event
-    await AuditLog.create({
-      orgId: organization._id,
-      userId: req.user?.userId || null,
-      action: "ORGANIZATION_PROFILE_UPDATED",
-      entityType: "ORGANIZATION",
-      entityId: organization._id,
-      ipAddress: req.ip,
-      userAgent: req.get("user-agent"),
-      metadata: { updatedFields: Object.keys(req.body) }
-    });
+    try {
+      await AuditLog.create({
+        orgId: organization._id,
+        userId: req.user?.userId || null,
+        action: "ORGANIZATION_PROFILE_UPDATED",
+        entityType: "ORGANIZATION",
+        entityId: organization._id,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        metadata: { updatedFields: Object.keys(req.body).filter(k => k !== 'logo') } // Don't log logo data
+      });
+    } catch (auditError) {
+      console.error("Audit log creation failed during profile update:", auditError);
+      // Don't fail the request if audit log fails
+    }
 
     res.json({
       success: true,
@@ -393,9 +413,20 @@ const updateOrganizationProfile = async (req, res) => {
     });
   } catch (error) {
     console.error("Update organization profile error:", error);
+
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: " + messages.join(', ')
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: error.message || "Failed to update organization profile"
+      message: error.message || "Failed to update organization profile",
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };

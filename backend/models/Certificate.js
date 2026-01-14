@@ -4,7 +4,6 @@
  */
 
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
 const { Schema } = mongoose;
 
 const certificateSchema = new Schema(
@@ -60,14 +59,13 @@ const certificateSchema = new Schema(
       type: String,
       unique: true,
       required: true,
-      default: () => uuidv4(), // Auto-generate UUID if not provided
       index: true, // Critical for certificate verification
     },
-    certificateUniqueId: {
+    qrCodeUrl: {
       type: String,
-      unique: true,
-      sparse: true, // Sparse because old certificates might not have it immediately (unless we migrate)
-      index: true,
+    },
+    qrCodeImage: {
+      type: String, // Base64 or URL
     },
     issuedYear: {
       type: Number,

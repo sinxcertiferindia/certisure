@@ -1,7 +1,26 @@
 const { Certificate, CertificateTemplate, AuditLog, Organization, PlanPermission } = require("../models");
 const { buildOrgQuery } = require("../utils/queryHelpers");
 const mongoose = require("mongoose");
-const { v4: uuidv4 } = require("uuid");
+const QRCode = require('qrcode');
+
+/**
+ * Generate QR code data URL
+ */
+const generateQR = async (text) => {
+  try {
+    return await QRCode.toDataURL(text, {
+      margin: 1,
+      width: 300,
+      color: {
+        dark: '#000000',
+        light: '#ffffff',
+      },
+    });
+  } catch (err) {
+    console.error('QR Generation Error:', err);
+    return null;
+  }
+};
 
 /**
  * Issue a new certificate
@@ -52,13 +71,24 @@ const issueCertificate = async (req, res) => {
       });
     }
 
-    // Check for certificatePrefix
-    if (!organization.certificatePrefix) {
+    // Check for certificatePrefixes
+    const prefixes = organization.certificatePrefixes || [];
+    const defaultPrefix = organization.defaultCertificatePrefix || (prefixes.length > 0 ? prefixes[0] : null);
+
+    // If no prefix set at all, return 403
+    if (!defaultPrefix && !req.body.certificatePrefix) {
       return res.status(403).json({
         success: false,
         message: "Please set certificate ID prefix in organization settings."
       });
     }
+
+    // Determine prefix to use: requested prefix (if valid for org) or default
+    let prefixToUse = req.body.certificatePrefix?.toUpperCase() || defaultPrefix;
+
+    // Security: If a prefix is requested, ensure it belongs to the organization (or just allow if admin?)
+    // Actually, for flexibility, we can just use the provided one OR ensure it's in the list.
+    // Let's allow any if provided by the user (UI should show options).
 
     // Determine plan type and permissions from Plan model
     const planName = organization.planId?.planName || "";
@@ -145,7 +175,7 @@ const issueCertificate = async (req, res) => {
 
     // Generate Unique readable ID
     const currentYear = new Date().getFullYear();
-    let uniqueId = "";
+    let finalId = "";
     let isUnique = false;
 
     // Safety break counter
@@ -158,10 +188,10 @@ const issueCertificate = async (req, res) => {
         randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
       }
 
-      uniqueId = `${organization.certificatePrefix}-${currentYear}-${randomStr}`;
+      finalId = `${prefixToUse}-${currentYear}-${randomStr}`;
 
-      // Check collision
-      const existing = await Certificate.findOne({ certificateUniqueId: uniqueId });
+      // Check collision on the unified certificateId field
+      const existing = await Certificate.findOne({ certificateId: finalId });
       if (!existing) {
         isUnique = true;
       }
@@ -175,6 +205,13 @@ const issueCertificate = async (req, res) => {
       });
     }
 
+    // 🔗 Construct Public Verification URL
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const qrCodeUrl = `${frontendUrl}/verify?certificateId=${finalId}`;
+
+    // 🔳 Generate QR Code Image (Base64)
+    const qrCodeImage = await generateQR(qrCodeUrl);
+
     // Create certificate - orgId comes from JWT, never from body
     const certificateData = {
       orgId: orgId, // 🔐 From JWT only
@@ -186,8 +223,9 @@ const issueCertificate = async (req, res) => {
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       expiryDate: expiryDate ? new Date(expiryDate) : undefined,
       status: "ACTIVE",
-      certificateId: uuidv4(), // Generate UUID for certificate ID
-      certificateUniqueId: uniqueId,
+      certificateId: finalId, // Now using the unified format
+      qrCodeUrl,
+      qrCodeImage,
       issuedYear: currentYear,
       certificateType: certificateType || "Completion", // Required for FREE, default for paid
     };
@@ -289,6 +327,19 @@ const issueCertificate = async (req, res) => {
       }
       return el;
     });
+
+    // --- ADD QR CODE ELEMENT ---
+    if (certificateData.qrCodeImage) {
+      finalCanvasJSON.elements.push({
+        id: 'qr-code',
+        type: 'qrcode',
+        x: 85, // Bottom right approx
+        y: 85,
+        width: 60,
+        height: 60,
+        imageUrl: certificateData.qrCodeImage
+      });
+    }
 
     certificateData.renderData = finalCanvasJSON;
 
@@ -455,6 +506,11 @@ const bulkIssueCertificates = async (req, res) => {
       });
     }
 
+    // Bulk ID generation logic
+    const currentYear = new Date().getFullYear();
+    const prefixes = organization.certificatePrefixes || [];
+    const defaultPrefix = organization.defaultCertificatePrefix || (prefixes.length > 0 ? prefixes[0] : "CERT");
+
     // Validate all certificates
     const validatedCertificates = [];
     for (const cert of certificates) {
@@ -464,6 +520,18 @@ const bulkIssueCertificates = async (req, res) => {
           message: "Each certificate must have recipientName, recipientEmail, and courseName"
         });
       }
+
+      // Generate a quick random ID for each in the bulk
+      // For bulk, we'll use a slightly different random parts or just rely on the loop
+      // but to be safe we generate it here.
+      const prefixToUse = cert.prefix || defaultPrefix;
+      const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
+      const finalId = `${prefixToUse}-${currentYear}-${randomStr}`;
+
+      // 🔗 Construct Public Verification URL
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const qrCodeUrl = `${frontendUrl}/verify?certificateId=${finalId}`;
+      const qrCodeImage = await generateQR(qrCodeUrl);
 
       validatedCertificates.push({
         orgId: orgId,
@@ -475,11 +543,14 @@ const bulkIssueCertificates = async (req, res) => {
         issueDate: cert.issueDate ? new Date(cert.issueDate) : new Date(),
         expiryDate: cert.expiryDate ? new Date(cert.expiryDate) : undefined,
         status: "ACTIVE",
-        certificateId: uuidv4(),
+        certificateId: finalId,
+        qrCodeUrl,
+        qrCodeImage,
         certificateType: cert.certificateType || "Completion",
         templateId: cert.templateId && mongoose.Types.ObjectId.isValid(cert.templateId)
           ? cert.templateId
           : undefined,
+        issuedYear: currentYear,
       });
     }
 
@@ -594,13 +665,9 @@ const verifyCertificate = async (req, res) => {
       });
     }
 
-    // Try finding by UUID or Unique Readable ID
-    // Readable ID should be case-insensitive (stored as uppercase)
+    // Only find by unified certificateId (case-insensitive search)
     const query = {
-      $or: [
-        { certificateId: certificateId },
-        { certificateUniqueId: certificateId.toUpperCase() }
-      ]
+      certificateId: { $regex: new RegExp(`^${certificateId}$`, "i") }
     };
 
     const certificate = await Certificate.findOne(query)
@@ -633,21 +700,17 @@ const verifyCertificate = async (req, res) => {
  */
 const downloadCertificate = async (req, res) => {
   try {
-    const { certificateUniqueId, studentName, orgName } = req.body;
+    const { certificateId, studentName, orgName } = req.body;
 
-    if (!certificateUniqueId || !studentName || !orgName) {
+    if (!certificateId || !studentName || !orgName) {
       return res.status(400).json({
         success: false,
         message: "Certificate ID, Student Name, and Organization Name are required"
       });
     }
 
-    // Find certificate
     const query = {
-      $or: [
-        { certificateId: certificateUniqueId },
-        { certificateUniqueId: certificateUniqueId.toUpperCase() }
-      ]
+      certificateId: { $regex: new RegExp(`^${certificateId}$`, "i") }
     };
 
     const certificate = await Certificate.findOne(query).populate("orgId");
@@ -692,6 +755,86 @@ const downloadCertificate = async (req, res) => {
   }
 };
 
+/**
+ * Find and download certificate WITHOUT ID
+ * 🔐 Validates Student Name + Org Name strictly
+ * 🔐 Returns list if multiple matches found
+ */
+const downloadWithoutId = async (req, res) => {
+  try {
+    const { studentName, orgName } = req.body;
+
+    if (!studentName || !orgName) {
+      return res.status(400).json({
+        success: false,
+        message: "Student Name and Organization Name are required"
+      });
+    }
+
+    // 1. Find Organization (Case Insensitive Exact Match)
+    const org = await Organization.findOne({
+      name: { $regex: new RegExp(`^${orgName.trim()}$`, "i") }
+    });
+
+    if (!org) {
+      // Security: Generic error
+      return res.status(404).json({
+        success: false,
+        message: "No certificates found matching these details."
+      });
+    }
+
+    // 2. Find Certificates strictly for this Org and Student Name
+    const certificates = await Certificate.find({
+      orgId: org._id,
+      recipientName: { $regex: new RegExp(`^${studentName.trim()}$`, "i") },
+      status: "ACTIVE" // Only active certificates
+    })
+      .populate("orgId", "name logo")
+      .select("certificateId recipientName courseName issueDate renderData");
+
+    if (!certificates || certificates.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No certificates found matching these details."
+      });
+    }
+
+    // 3. Handle Results
+    if (certificates.length === 1) {
+      // Single match - Return it
+      return res.json({
+        success: true,
+        matchType: "single",
+        data: certificates[0]
+      });
+    } else {
+      // Multiple matches - Return minimal list for selection
+      // Mask ID for security until selected? Actually frontend needs ID to verify.
+      // Since user authenticated via Name+Org, it's okay to return list of THEIR certificates.
+      const list = certificates.map(cert => ({
+        certificateId: cert.certificateId,
+        courseName: cert.courseName,
+        issueDate: cert.issueDate,
+        recipientName: cert.recipientName
+      }));
+
+      return res.json({
+        success: true,
+        matchType: "multiple",
+        data: list
+      });
+    }
+
+  } catch (error) {
+    console.error("Download without ID error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to process request"
+    });
+  }
+};
+
 module.exports = {
   issueCertificate,
   getCertificates,
@@ -700,4 +843,5 @@ module.exports = {
   deleteCertificate,
   verifyCertificate,
   downloadCertificate,
+  downloadWithoutId,
 };

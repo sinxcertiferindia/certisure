@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
@@ -27,11 +28,13 @@ import {
   ExternalLink,
   Download,
   X,
+  FileText,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Html5Qrcode } from "html5-qrcode";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import { useToast } from "@/hooks/use-toast";
 
 // Mock certificate data for demo
 const mockCertificates: Record<string, {
@@ -87,11 +90,14 @@ interface VerificationResult {
   credentialId: string;
   renderData?: any;
   logo?: string;
+  qrCodeImage?: string;
 }
 
 
 
 const Verify = () => {
+  const { toast } = useToast();
+  const { certificateId: pathCertId } = useParams();
   const [searchId, setSearchId] = useState("");
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -108,6 +114,18 @@ const Verify = () => {
 
   const qrCodeRef = useRef<Html5Qrcode | null>(null);
   const scannerId = "qr-reader";
+
+  // 🔍 Auto-verify if certificateId is in URL (QR Code support)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const queryCertId = params.get("certificateId");
+    const certId = queryCertId || pathCertId;
+
+    if (certId) {
+      setSearchId(certId);
+      handleVerifyWithId(certId);
+    }
+  }, [pathCertId]);
 
   const handleDownloadClick = () => {
     setDownloadInputs({ studentName: "", orgName: "" });
@@ -134,7 +152,7 @@ const Verify = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          certificateUniqueId: verificationResult.id, // Use displayed ID
+          certificateId: verificationResult.id,
           studentName: downloadInputs.studentName,
           orgName: downloadInputs.orgName
         })
@@ -196,10 +214,40 @@ const Verify = () => {
     }
   };
 
+  const generateJPG = async () => {
+    if (!certificateRef.current) return;
+
+    try {
+      const element = certificateRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const link = document.createElement('a');
+      link.download = `${verificationResult?.id || 'Certificate'}.jpg`;
+      link.href = canvas.toDataURL('image/jpeg', 0.9);
+      link.click();
+
+      toast({
+        title: "Download Started",
+        description: "Your certificate is being downloaded as JPG.",
+      });
+    } catch (e) {
+      console.error("JPG Generation Error:", e);
+      alert("Failed to generate JPG. Please try again.");
+    }
+  };
+
   const handleVerify = async () => {
     if (!searchId.trim()) return;
     handleVerifyWithId(searchId.trim());
   };
+  const [searchMode, setSearchMode] = useState<'id' | 'details'>('id');
+  const [detailsInput, setDetailsInput] = useState({ studentName: "", orgName: "" });
+  const [multipleMatches, setMultipleMatches] = useState<any[]>([]);
 
   const startQrScanner = async () => {
     try {
@@ -220,45 +268,23 @@ const Verify = () => {
           aspectRatio: 1.0,
         },
         (decodedText) => {
-          // Extract certificate ID from URL if it's a full URL
           let certId = decodedText;
           if (decodedText.includes("/verify/")) {
             certId = decodedText.split("/verify/")[1].split("?")[0];
           }
-
-          // Stop scanning
           html5QrCode.stop().then(() => {
-            setIsScanning(false);
-            setShowQrScanner(false);
-            setSearchId(certId);
-            handleVerifyWithId(certId);
-          }).catch((err) => {
-            console.error("Error stopping scanner:", err);
             setIsScanning(false);
             setShowQrScanner(false);
             setSearchId(certId);
             handleVerifyWithId(certId);
           });
         },
-        (errorMessage) => {
-          // Ignore errors - scanning is in progress
-          // Only log if it's not a common "not found" error
-          if (!errorMessage.includes("NotFoundException")) {
-            // Silent - scanning continues
-          }
-        }
+        (errorMessage) => { }
       );
     } catch (error: any) {
       console.error("Error starting QR scanner:", error);
       setIsScanning(false);
       setShowQrScanner(false);
-
-      // Show user-friendly error message
-      if (error?.message?.includes("Permission")) {
-        alert("Camera permission is required to scan QR codes. Please allow camera access and try again.");
-      } else if (error?.message?.includes("NotFoundError")) {
-        alert("No camera found. Please ensure your device has a camera and try again.");
-      }
     }
   };
 
@@ -267,9 +293,7 @@ const Verify = () => {
       try {
         await qrCodeRef.current.stop();
         await qrCodeRef.current.clear();
-      } catch (error) {
-        console.error("Error stopping QR scanner:", error);
-      }
+      } catch (error) { console.error(error); }
       qrCodeRef.current = null;
     }
     setIsScanning(false);
@@ -280,13 +304,13 @@ const Verify = () => {
     setIsSearching(true);
     setNotFound(false);
     setVerificationResult(null);
+    setMultipleMatches([]);
 
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/certificate/verify/${id}`);
       const data = await response.json();
 
       if (data.success) {
-        // Map backend model to frontend expected structure
         const cert = data.data;
         setVerificationResult({
           id: cert.certificateId,
@@ -298,7 +322,8 @@ const Verify = () => {
           status: cert.status.toLowerCase() as any,
           credentialId: cert.certificateId,
           renderData: cert.renderData,
-          logo: cert.orgId?.logo
+          logo: cert.orgId?.logo,
+          qrCodeImage: cert.qrCodeImage
         });
       } else {
         setNotFound(true);
@@ -311,24 +336,78 @@ const Verify = () => {
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if (qrCodeRef.current) {
-        qrCodeRef.current.stop().catch(() => { });
+  const handleDetailSearch = async () => {
+    if (!detailsInput.studentName.trim() || !detailsInput.orgName.trim()) return;
+
+    setIsSearching(true);
+    setNotFound(false);
+    setVerificationResult(null);
+    setMultipleMatches([]);
+
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || '/api';
+      const response = await fetch(`${apiUrl}/certificate/download-without-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(detailsInput)
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        if (data.matchType === 'single') {
+          // Reuse verification result logic
+          const cert = data.data;
+          setVerificationResult({
+            id: cert.certificateId,
+            recipientName: cert.recipientName,
+            courseName: cert.courseName,
+            issuerOrg: cert.orgId?.name || "Unknown Organization",
+            issueDate: cert.issueDate,
+            expiryDate: cert.expiryDate || null,
+            status: cert.status?.toLowerCase() || "active",
+            credentialId: cert.certificateId,
+            renderData: cert.renderData,
+            logo: cert.orgId?.logo
+          });
+        } else if (data.matchType === 'multiple') {
+          setMultipleMatches(data.data);
+        }
+      } else {
+        setNotFound(true);
       }
-    };
-  }, []);
+    } catch (error) {
+      console.error("Detail search error", error);
+      setNotFound(true);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "active":
-        return <Badge variant="verified"><CheckCircle2 className="w-3 h-3 mr-1" />Verified & Active</Badge>;
+        return (
+          <Badge variant="verified" className="gap-1">
+            <CheckCircle2 className="w-3 h-3" />
+            Active
+          </Badge>
+        );
       case "expired":
-        return <Badge variant="expired"><AlertCircle className="w-3 h-3 mr-1" />Expired</Badge>;
+        return (
+          <Badge variant="expired" className="gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Expired
+          </Badge>
+        );
       case "revoked":
-        return <Badge variant="revoked"><XCircle className="w-3 h-3 mr-1" />Revoked</Badge>;
+        return (
+          <Badge variant="destructive" className="gap-1">
+            <XCircle className="w-3 h-3" />
+            Revoked
+          </Badge>
+        );
       default:
-        return null;
+        return <Badge variant="secondary">{status}</Badge>;
     }
   };
 
@@ -357,10 +436,10 @@ const Verify = () => {
               </div>
 
               <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-                Verify a Certificate
+                Verify & Download Certificate
               </h1>
               <p className="text-lg text-muted-foreground">
-                Enter the Certificate ID or scan the QR code to instantly verify the authenticity of any certificate.
+                Verify via ID or find your certificate using your details.
               </p>
             </motion.div>
 
@@ -371,51 +450,141 @@ const Verify = () => {
               transition={{ duration: 0.5, delay: 0.1 }}
               className="max-w-2xl mx-auto"
             >
-              <Card variant="elevated" className="p-6">
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                    <Input
-                      type="text"
-                      placeholder="Enter Certificate ID (e.g., CS-2024-78432)"
-                      value={searchId}
-                      onChange={(e) => setSearchId(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleVerify()}
-                      className="pl-10 h-12"
-                    />
-                  </div>
-                  <Button
-                    variant="hero"
-                    size="lg"
-                    onClick={handleVerify}
-                    disabled={isSearching || !searchId.trim()}
-                    className="h-12"
+              <div className="flex justify-center mb-6">
+                <div className="bg-muted p-1 rounded-lg inline-flex">
+                  <button
+                    onClick={() => setSearchMode('id')}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${searchMode === 'id' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                      }`}
                   >
-                    {isSearching ? (
-                      <>
-                        <span className="animate-spin mr-2">⏳</span>
-                        Verifying...
-                      </>
-                    ) : (
-                      <>
-                        <Shield className="w-4 h-4 mr-2" />
-                        Verify
-                      </>
-                    )}
-                  </Button>
+                    By Certificate ID
+                  </button>
+                  <button
+                    onClick={() => setSearchMode('details')}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${searchMode === 'details' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                  >
+                    By Details (No ID)
+                  </button>
                 </div>
+              </div>
 
-                <div className="flex items-center gap-4 mt-4 pt-4 border-t border-border">
-                  <Button variant="outline" size="sm" className="gap-2" onClick={startQrScanner}>
-                    <QrCode className="w-4 h-4" />
-                    Scan QR Code
-                  </Button>
-                  <span className="text-sm text-muted-foreground">
-                    Demo IDs: CS-2024-78432, CS-2024-12345, CS-2023-99999
-                  </span>
-                </div>
+              <Card variant="elevated" className="p-6">
+                {searchMode === 'id' ? (
+                  <>
+                    <div className="flex flex-col md:flex-row gap-4">
+                      <div className="flex-1 relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          placeholder="Enter Certificate ID (e.g., CERTI-2024-XA92B)"
+                          value={searchId}
+                          onChange={(e) => setSearchId(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleVerify()}
+                          className="pl-10 h-12"
+                        />
+                      </div>
+                      <Button
+                        variant="hero"
+                        size="lg"
+                        onClick={handleVerify}
+                        disabled={isSearching || !searchId.trim()}
+                        className="h-12"
+                      >
+                        {isSearching ? (
+                          <>
+                            <span className="animate-spin mr-2">⏳</span>
+                            Verifying...
+                          </>
+                        ) : (
+                          <>
+                            <Shield className="w-4 h-4 mr-2" />
+                            Verify
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center gap-4 mt-4 pt-4 border-t border-border">
+                      <Button variant="outline" size="sm" className="gap-2" onClick={startQrScanner}>
+                        <QrCode className="w-4 h-4" />
+                        Scan QR Code
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Or verify by scanning the QR code on the certificate.
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Student Name</label>
+                        <Input
+                          placeholder="Full Name (e.g. John Doe)"
+                          value={detailsInput.studentName}
+                          onChange={(e) => setDetailsInput({ ...detailsInput, studentName: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Organization Name</label>
+                        <Input
+                          placeholder="Issuing Organization"
+                          value={detailsInput.orgName}
+                          onChange={(e) => setDetailsInput({ ...detailsInput, orgName: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      variant="hero"
+                      className="w-full h-12"
+                      onClick={handleDetailSearch}
+                      disabled={isSearching || !detailsInput.studentName || !detailsInput.orgName}
+                    >
+                      {isSearching ? (
+                        <>
+                          <span className="animate-spin mr-2">⏳</span>
+                          Searching...
+                        </>
+                      ) : (
+                        <>
+                          <Search className="w-4 h-4 mr-2" />
+                          Find & Download
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
               </Card>
             </motion.div>
+
+            {/* Multiple Matches Selection */}
+            {multipleMatches.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-2xl mx-auto mt-8"
+              >
+                <Card className="p-6">
+                  <h3 className="text-lg font-semibold mb-4">Select Your Certificate</h3>
+                  <div className="space-y-3">
+                    {multipleMatches.map((cert) => (
+                      <div
+                        key={cert.certificateId}
+                        className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer flex justify-between items-center transition-colors"
+                        onClick={() => handleVerifyWithId(cert.certificateId)}
+                      >
+                        <div>
+                          <p className="font-medium">{cert.courseName}</p>
+                          <p className="text-sm text-muted-foreground">Issued: {new Date(cert.issueDate).toLocaleDateString()}</p>
+                        </div>
+                        <Button variant="ghost" size="sm">Select</Button>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </motion.div>
+            )}
 
             {/* Verification Result */}
             {verificationResult && (
@@ -493,8 +662,8 @@ const Verify = () => {
                                   }}
                                 >
                                   {el.type === 'text' && el.content}
-                                  {(el.type === 'logo' || el.type === 'signature') && (
-                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" />
+                                  {(el.type === 'logo' || el.type === 'signature' || el.type === 'qrcode') && (
+                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
                                   )}
                                   {el.type === 'shape' && (
                                     <div style={{
@@ -511,9 +680,15 @@ const Verify = () => {
                           ) : (
                             <div className="w-full h-full flex items-center justify-center bg-slate-50">
                               <div className="text-center p-8 space-y-4">
-                                {verificationResult.logo && <img src={verificationResult.logo} className="w-20 h-20 mx-auto object-contain grayscale" />}
+                                {verificationResult.logo && <img src={verificationResult.logo} className="w-20 h-20 mx-auto object-contain grayscale" crossOrigin="anonymous" />}
                                 <h2 className="text-2xl font-bold">{verificationResult.courseName}</h2>
                                 <p>Verified Certificate for {verificationResult.recipientName}</p>
+                                {verificationResult.qrCodeImage && (
+                                  <div className="mt-4 p-2 bg-white inline-block border rounded">
+                                    <img src={verificationResult.qrCodeImage} className="w-24 h-24 mx-auto" alt="QR Code" crossOrigin="anonymous" />
+                                    <p className="text-[8px] text-muted-foreground mt-1">Scan to Verify</p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -564,10 +739,15 @@ const Verify = () => {
                         </div>
 
                         {/* Public Action Buttons */}
-                        <div className="pt-4 space-y-3">
-                          <Button variant="default" className="w-full gap-2" onClick={handleDownloadClick}>
-                            <Download className="w-4 h-4" /> Download Certificate
+                        <div className="pt-4 grid grid-cols-2 gap-3">
+                          <Button variant="default" className="gap-2" onClick={handleDownloadClick}>
+                            <Download className="w-4 h-4" /> PDF
                           </Button>
+                          <Button variant="secondary" className="gap-2" onClick={generateJPG}>
+                            <FileText className="w-4 h-4" /> JPG
+                          </Button>
+                        </div>
+                        <div className="space-y-3">
                           <Button variant="outline" className="w-full gap-2">
                             <ExternalLink className="w-4 h-4" /> Add to LinkedIn
                           </Button>

@@ -52,7 +52,8 @@ interface OrganizationData {
     subscriptionStatus: string;
     accountStatus: string;
     logo?: string;
-    certificatePrefix?: string;
+    certificatePrefixes?: string[];
+    defaultCertificatePrefix?: string;
     plan: PlanData;
 }
 
@@ -176,15 +177,24 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
 
     // Initialize prefix input when org data loads
     useEffect(() => {
-        if (organizationData?.certificatePrefix) {
-            setPrefixInput(organizationData.certificatePrefix);
+        const prefix = organizationData?.defaultCertificatePrefix || organizationData?.certificatePrefixes?.[0];
+        if (prefix) {
+            setPrefixInput(prefix);
         }
     }, [organizationData]);
 
     const handleSavePrefix = async () => {
         try {
-            await api.put("/org/profile", { certificatePrefix: prefixInput });
-            setOrganizationData(prev => prev ? { ...prev, certificatePrefix: prefixInput } : null);
+            const response = await api.put("/org/profile", { defaultCertificatePrefix: prefixInput });
+            if (response.data.success) {
+                // The backend now returns the updated organization including prefixes
+                const updatedOrg = response.data.data;
+                setOrganizationData(prev => prev ? {
+                    ...prev,
+                    defaultCertificatePrefix: updatedOrg.defaultCertificatePrefix,
+                    certificatePrefixes: updatedOrg.certificatePrefixes
+                } : null);
+            }
             setIsEditingPrefix(false);
         } catch (error) {
             console.error("Failed to save prefix:", error);
@@ -383,7 +393,7 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
                                         ) : (
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-mono font-bold bg-muted px-2 py-1 rounded">
-                                                    {organizationData.certificatePrefix || "NOT SET"}
+                                                    {organizationData.defaultCertificatePrefix || organizationData.certificatePrefixes?.[0] || "NOT SET"}
                                                 </span>
                                                 {userData.role === "ORG_ADMIN" && (
                                                     <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setIsEditingPrefix(true)}>
@@ -392,7 +402,7 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
                                                 )}
                                             </div>
                                         )}
-                                        {!organizationData.certificatePrefix && (
+                                        {(!organizationData.certificatePrefixes || organizationData.certificatePrefixes.length === 0) && (
                                             <p className="text-xs text-red-500 mt-1">Required for issuing certificates</p>
                                         )}
                                     </div>

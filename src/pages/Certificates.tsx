@@ -71,7 +71,7 @@ const Certificates = () => {
         setIsLoading(true);
         const [orgRes, certRes] = await Promise.all([
           api.get("/org/profile"),
-          api.get("/certificate")
+          api.get("/certificates")
         ]);
 
         if (orgRes.data.success) {

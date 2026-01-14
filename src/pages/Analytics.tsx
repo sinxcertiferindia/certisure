@@ -75,7 +75,7 @@ const Analytics = () => {
       }
 
       // Fetch all certificates
-      const certsResponse = await api.get("/certificate");
+      const certsResponse = await api.get("/certificates");
       if (!certsResponse.data.success) {
         throw new Error("Failed to fetch certificates");
       }

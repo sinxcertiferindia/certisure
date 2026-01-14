@@ -114,7 +114,7 @@ const Dashboard = () => {
         setIsLoadingDashboard(true);
 
         // Fetch certificates
-        const certsResponse = await api.get("/certificate");
+        const certsResponse = await api.get("/certificates");
         if (certsResponse.data.success) {
           const certificates = certsResponse.data.data;
 

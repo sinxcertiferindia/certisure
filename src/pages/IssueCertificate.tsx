@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -19,10 +19,14 @@ import {
   Calendar,
   FileText,
   Eye,
+  AlertCircle,
+  Settings,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 
 interface CertificateData {
   recipientName: string;
@@ -44,6 +48,7 @@ const IssueCertificate = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [certificateData, setCertificateData] = useState<CertificateData | null>(null);
+  const certificateRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
     recipientName: "",
@@ -66,6 +71,8 @@ const IssueCertificate = () => {
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>("FREE");
   const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
   const [isLoadingOrg, setIsLoadingOrg] = useState(true);
+  const [prefixes, setPrefixes] = useState<string[]>([]);
+  const [selectedPrefix, setSelectedPrefix] = useState<string>("");
 
   // Load organization profile and subscription plan
   useEffect(() => {
@@ -76,6 +83,12 @@ const IssueCertificate = () => {
         setSubscriptionPlan(org.subscriptionPlan || "FREE");
         setOrganizationLogo(org.logo || null);
         setFormData((prev) => ({ ...prev, organizationName: org.name || prev.organizationName }));
+
+        // Handle prefixes
+        const orgPrefixes = org.certificatePrefixes || [];
+        setPrefixes(orgPrefixes);
+        setSelectedPrefix(org.defaultCertificatePrefix || (orgPrefixes.length > 0 ? orgPrefixes[0] : ""));
+
         setIsLoadingOrg(false);
       } catch (error) {
         console.error("Failed to load organization:", error);
@@ -167,6 +180,7 @@ const IssueCertificate = () => {
         issueDate: formData.issueDate,
         expiryDate: formData.expirationDate || undefined,
         certificateType: formData.certificateType,
+        certificatePrefix: selectedPrefix,
       };
 
       // Include templateId for all plans
@@ -179,7 +193,7 @@ const IssueCertificate = () => {
         payload.batchName = formData.batchName;
       }
 
-      const response = await api.post("/certificate", payload);
+      const response = await api.post("/certificates", payload);
       const cert = response.data.data;
 
       // Create certificate data for preview
@@ -257,20 +271,72 @@ const IssueCertificate = () => {
     }
   };
 
-  const handleDownloadPDF = () => {
-    // Dummy PDF download
-    toast({
-      title: "Download Started",
-      description: "PDF download will be available in the full implementation.",
-    });
+  const handleDownloadPDF = async () => {
+    if (!certificateRef.current) return;
+
+    try {
+      const element = certificateRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const orientation = canvas.width > canvas.height ? 'l' : 'p';
+      const pdf = new jsPDF({
+        orientation: orientation,
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`${certificateData?.certificateId || 'Certificate'}.pdf`);
+
+      toast({
+        title: "Download Started",
+        description: "Your certificate is being downloaded as PDF.",
+      });
+    } catch (e) {
+      console.error("PDF Generation Error:", e);
+      toast({
+        title: "Error",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleDownloadJPG = () => {
-    // Dummy JPG download - could use canvas-to-image export
-    toast({
-      title: "Download Started",
-      description: "JPG download will be available in the full implementation.",
-    });
+  const handleDownloadJPG = async () => {
+    if (!certificateRef.current) return;
+
+    try {
+      const element = certificateRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const link = document.createElement('a');
+      link.download = `${certificateData?.certificateId || 'Certificate'}.jpg`;
+      link.href = canvas.toDataURL('image/jpeg', 0.9);
+      link.click();
+
+      toast({
+        title: "Download Started",
+        description: "Your certificate is being downloaded as JPG.",
+      });
+    } catch (e) {
+      console.error("JPG Generation Error:", e);
+      toast({
+        title: "Error",
+        description: "Failed to generate JPG. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleShareLinkedIn = () => {
@@ -320,6 +386,45 @@ const IssueCertificate = () => {
                     {/* Required Fields */}
                     <div className="space-y-4">
                       <h3 className="text-lg font-semibold">Required Fields</h3>
+
+                      <div className="space-y-4 pt-2 pb-2 border rounded-lg p-3 bg-muted/20">
+                        <Label className="text-xs font-bold text-primary uppercase tracking-wider">
+                          Certificate ID Configuration
+                        </Label>
+                        <div className="space-y-2">
+                          <Label>Select Prefix <span className="text-destructive">*</span></Label>
+                          {prefixes.length > 0 ? (
+                            <Select value={selectedPrefix} onValueChange={setSelectedPrefix}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select prefix" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {prefixes.map((prefix) => (
+                                  <SelectItem key={prefix} value={prefix}>
+                                    {prefix}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="p-3 border border-destructive/50 rounded-md bg-destructive/5 text-sm text-destructive font-medium flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4" />
+                                No prefixes set in organization settings!
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full border-destructive/50 text-destructive hover:bg-destructive/10"
+                                onClick={() => navigate("/dashboard/admin")}
+                              >
+                                Go to Settings
+                              </Button>
+                            </div>
+                          )}
+                          <p className="text-[10px] text-muted-foreground">The certificate unique ID will look like: <strong>{selectedPrefix || "PREFIX"}-{new Date().getFullYear()}-XXXXX</strong></p>
+                        </div>
+                      </div>
 
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -640,8 +745,8 @@ const IssueCertificate = () => {
                                   }}
                                 >
                                   {el.type === 'text' && content}
-                                  {(el.type === 'logo' || el.type === 'signature') && (
-                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" />
+                                  {(el.type === 'logo' || el.type === 'signature' || el.type === 'qrcode') && (
+                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
                                   )}
                                   {el.type === 'shape' && (
                                     <div style={{
@@ -715,7 +820,7 @@ const IssueCertificate = () => {
             {certificateData && (
               <Card className="border-2 border-primary/20 overflow-hidden">
                 <CardContent className="p-0">
-                  <div className="aspect-[1.414/1] bg-white relative shadow-inner overflow-hidden mx-auto" style={{ maxWidth: '800px' }}>
+                  <div ref={certificateRef} className="aspect-[1.414/1] bg-white relative shadow-inner overflow-hidden mx-auto" style={{ maxWidth: '800px' }}>
                     {certificateData.renderData ? (
                       <div className="w-full h-full relative" style={{
                         backgroundColor: certificateData.renderData.backgroundColor || '#ffffff',
@@ -749,8 +854,8 @@ const IssueCertificate = () => {
                                   }}
                                 >
                                   {el.type === 'text' && el.content}
-                                  {(el.type === 'logo' || el.type === 'signature') && (
-                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" />
+                                  {(el.type === 'logo' || el.type === 'signature' || el.type === 'qrcode') && (
+                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
                                   )}
                                   {el.type === 'shape' && (
                                     <div style={{
