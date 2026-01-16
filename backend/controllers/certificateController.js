@@ -206,8 +206,9 @@ const issueCertificate = async (req, res) => {
     }
 
     // 🔗 Construct Public Verification URL
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const qrCodeUrl = `${frontendUrl}/verify?certificateId=${finalId}`;
+    const origin = req.get('origin') || req.get('referer');
+    const frontendBase = process.env.FRONTEND_URL || (origin ? new URL(origin).origin : 'http://localhost:5173');
+    const qrCodeUrl = `${frontendBase}/verify/${finalId}`; // Switching to path-based ID for cleaner URLs
 
     // 🔳 Generate QR Code Image (Base64)
     const qrCodeImage = await generateQR(qrCodeUrl);
@@ -330,15 +331,23 @@ const issueCertificate = async (req, res) => {
 
     // --- ADD QR CODE ELEMENT ---
     if (certificateData.qrCodeImage) {
-      finalCanvasJSON.elements.push({
-        id: 'qr-code',
-        type: 'qrcode',
-        x: 85, // Bottom right approx
-        y: 85,
-        width: 60,
-        height: 60,
-        imageUrl: certificateData.qrCodeImage
-      });
+      const existingQRCode = finalCanvasJSON.elements.find(el => el.type === 'qrcode');
+      if (existingQRCode) {
+        // Update existing QR placeholder from builder
+        existingQRCode.imageUrl = certificateData.qrCodeImage;
+        existingQRCode.placeholder = false;
+      } else {
+        // Fallback: Add default QR code if not present in template
+        finalCanvasJSON.elements.push({
+          id: 'qr-code',
+          type: 'qrcode',
+          x: 85, // Bottom right approx
+          y: 85,
+          width: 80,
+          height: 80,
+          imageUrl: certificateData.qrCodeImage
+        });
+      }
     }
 
     certificateData.renderData = finalCanvasJSON;
@@ -529,8 +538,9 @@ const bulkIssueCertificates = async (req, res) => {
       const finalId = `${prefixToUse}-${currentYear}-${randomStr}`;
 
       // 🔗 Construct Public Verification URL
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      const qrCodeUrl = `${frontendUrl}/verify?certificateId=${finalId}`;
+      const origin = req.get('origin') || req.get('referer');
+      const frontendBase = process.env.FRONTEND_URL || (origin ? new URL(origin).origin : 'http://localhost:5173');
+      const qrCodeUrl = `${frontendBase}/verify/${finalId}`;
       const qrCodeImage = await generateQR(qrCodeUrl);
 
       validatedCertificates.push({

@@ -30,7 +30,7 @@ import {
   X,
   FileText,
 } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
+import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
 import { Html5Qrcode } from "html5-qrcode";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -118,14 +118,14 @@ const Verify = () => {
   // 🔍 Auto-verify if certificateId is in URL (QR Code support)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const queryCertId = params.get("certificateId");
+    const queryCertId = params.get("certificateId") || params.get("id");
     const certId = queryCertId || pathCertId;
 
-    if (certId) {
+    if (certId && certId !== verificationResult?.id) {
       setSearchId(certId);
       handleVerifyWithId(certId);
     }
-  }, [pathCertId]);
+  }, [pathCertId, window.location.search]);
 
   const handleDownloadClick = () => {
     setDownloadInputs({ studentName: "", orgName: "" });
@@ -310,7 +310,7 @@ const Verify = () => {
       const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/certificate/verify/${id}`);
       const data = await response.json();
 
-      if (data.success) {
+      if (data.success && data.data) {
         const cert = data.data;
         setVerificationResult({
           id: cert.certificateId,
@@ -558,6 +558,14 @@ const Verify = () => {
               </Card>
             </motion.div>
 
+            {/* Loading State */}
+            {isSearching && (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                <p className="mt-4 text-muted-foreground animate-pulse">Fetching certificate details...</p>
+              </div>
+            )}
+
             {/* Multiple Matches Selection */}
             {multipleMatches.length > 0 && (
               <motion.div
@@ -647,11 +655,11 @@ const Verify = () => {
                                     position: 'absolute',
                                     left: `${el.x}%`,
                                     top: `${el.y}%`,
-                                    width: el.width ? `${el.width / 5}%` : 'auto',
-                                    height: el.height ? `${el.height / 5}%` : 'auto',
+                                    width: el.width ? `${el.width}px` : 'auto',
+                                    height: el.height ? `${el.height}px` : 'auto',
                                     color: el.color,
                                     fontFamily: el.fontFamily,
-                                    fontSize: el.fontSize ? `${el.fontSize / 3}px` : '14px',
+                                    fontSize: el.fontSize ? `${el.fontSize}px` : '18px',
                                     fontWeight: el.fontWeight,
                                     textAlign: el.align as any,
                                     opacity: el.opacity,
@@ -662,8 +670,18 @@ const Verify = () => {
                                   }}
                                 >
                                   {el.type === 'text' && el.content}
-                                  {(el.type === 'logo' || el.type === 'signature' || el.type === 'qrcode') && (
+                                  {(el.type === 'logo' || el.type === 'signature') && (
                                     <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                                  )}
+                                  {el.type === 'qrcode' && (
+                                    <div className="bg-white p-1 rounded-sm shadow-sm inline-block">
+                                      <QRCodeCanvas
+                                        value={window.location.href}
+                                        size={el.width ? el.width : 100}
+                                        level="H"
+                                        includeMargin={false}
+                                      />
+                                    </div>
                                   )}
                                   {el.type === 'shape' && (
                                     <div style={{
@@ -680,13 +698,13 @@ const Verify = () => {
                           ) : (
                             <div className="w-full h-full flex items-center justify-center bg-slate-50">
                               <div className="text-center p-8 space-y-4">
-                                {verificationResult.logo && <img src={verificationResult.logo} className="w-20 h-20 mx-auto object-contain grayscale" crossOrigin="anonymous" />}
-                                <h2 className="text-2xl font-bold">{verificationResult.courseName}</h2>
-                                <p>Verified Certificate for {verificationResult.recipientName}</p>
+                                {verificationResult.logo && <img src={verificationResult.logo} className="w-24 h-24 mx-auto object-contain grayscale" crossOrigin="anonymous" />}
+                                <h2 className="text-3xl font-bold">{verificationResult.courseName}</h2>
+                                <p className="text-lg">Verified Certificate for {verificationResult.recipientName}</p>
                                 {verificationResult.qrCodeImage && (
-                                  <div className="mt-4 p-2 bg-white inline-block border rounded">
-                                    <img src={verificationResult.qrCodeImage} className="w-24 h-24 mx-auto" alt="QR Code" crossOrigin="anonymous" />
-                                    <p className="text-[8px] text-muted-foreground mt-1">Scan to Verify</p>
+                                  <div className="mt-6 p-3 bg-white inline-block border rounded-lg shadow-sm">
+                                    <img src={verificationResult.qrCodeImage} className="w-32 h-32 mx-auto" alt="QR Code" crossOrigin="anonymous" />
+                                    <p className="text-[10px] text-muted-foreground mt-2 font-medium">Scan to Verify</p>
                                   </div>
                                 )}
                               </div>

@@ -32,6 +32,7 @@ import {
   Grid as GridIcon,
   Lock as LockIcon,
   Layout as LayoutIcon,
+  QrCode as QrCodeIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
@@ -51,7 +52,7 @@ import {
 
 interface CanvasElement {
   id: string;
-  type: "text" | "logo" | "signature" | "shape";
+  type: "text" | "logo" | "signature" | "shape" | "qrcode";
   shapeType?: "rectangle" | "circle" | "line";
   content?: string;
   x: number;
@@ -343,6 +344,20 @@ const CertificateBuilder = () => {
       strokeWidth: 2,
       borderRadius: shapeType === "circle" ? 100 : 0,
       opacity: 1,
+    };
+    setElements([...elements, newElement]);
+    setSelectedElement(newElement.id);
+  };
+
+  const handleAddQRCode = () => {
+    const newElement: CanvasElement = {
+      id: Date.now().toString(),
+      type: "qrcode",
+      x: 80,
+      y: 80,
+      width: 80,
+      height: 80,
+      placeholder: true,
     };
     setElements([...elements, newElement]);
     setSelectedElement(newElement.id);
@@ -700,6 +715,27 @@ const CertificateBuilder = () => {
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={handleAddQRCode}
+                            disabled={!permissions.editorTools?.qrCode}
+                            className="w-full flex flex-col h-auto py-4 hover:bg-muted/50 transition-colors relative"
+                          >
+                            <QrCodeIcon className="w-6 h-6 mb-2 text-primary" />
+                            <span className="text-xs font-medium">QR Code</span>
+                            {!permissions.editorTools?.qrCode && <LockIcon className="w-3 h-3 absolute top-1 right-1 text-muted-foreground" />}
+                          </Button>
+                        </div>
+                      </TooltipTrigger>
+                      {!permissions.editorTools?.qrCode && (
+                        <TooltipContent><p>Upgrade to Pro to add QR codes</p></TooltipContent>
+                      )}
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="w-full">
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={handleDelete}
                             disabled={!selectedElement || (subscriptionPlan === "FREE" && selectedElementData?.type !== "logo" && selectedElementData?.type !== "signature")}
                             className="w-full flex flex-col h-auto py-4 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20 relative"
@@ -983,6 +1019,22 @@ const CertificateBuilder = () => {
                         )}
                       </div>
                     )}
+                    {element.type === "qrcode" && (
+                      <div
+                        style={{
+                          width: `${element.width || 80}px`,
+                          height: `${element.height || 80}px`,
+                          border: "1px dashed #ccc",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: "#f9f9f9",
+                        }}
+                      >
+                        <QrCodeIcon className="w-1/2 h-1/2 text-muted-foreground opacity-50" />
+                        <span className="absolute bottom-1 text-[8px] text-muted-foreground uppercase font-bold">QR Code</span>
+                      </div>
+                    )}
                     {element.type === "shape" && (
                       <div
                         style={{
@@ -1217,6 +1269,34 @@ const CertificateBuilder = () => {
                                 <AlignRightIcon className="w-4 h-4" />
                               </Button>
                             </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      )}
+
+                      {/* QR PROPERTIES GROUP */}
+                      {selectedElementData.type === "qrcode" && (
+                        <AccordionItem value="qr">
+                          <AccordionTrigger className="text-sm font-semibold text-primary">QR Code Properties</AccordionTrigger>
+                          <AccordionContent className="space-y-4 pt-2">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label className="mb-1.5 block text-xs">Size (px)</Label>
+                                <Input
+                                  type="number"
+                                  value={selectedElementData.width || 80}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0;
+                                    setElements(elements.map(el => el.id === selectedElement ? { ...el, width: val, height: val } : el));
+                                  }}
+                                />
+                              </div>
+                              <div className="flex items-end">
+                                <p className="text-[10px] text-muted-foreground italic pb-2">QR codes are always square</p>
+                              </div>
+                            </div>
+                            <p className="text-xs bg-muted p-2 rounded border border-border/50 text-muted-foreground">
+                              This placeholder will be replaced with a unique verification QR code when the certificate is issued.
+                            </p>
                           </AccordionContent>
                         </AccordionItem>
                       )}

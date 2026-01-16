@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import { QRCodeCanvas } from "qrcode.react";
 
 interface CertificateData {
   recipientName: string;
@@ -730,11 +731,11 @@ const IssueCertificate = () => {
                                     position: 'absolute',
                                     left: `${el.x}%`,
                                     top: `${el.y}%`,
-                                    width: el.width ? `${el.width / 8}px` : 'auto', // Scaled for preview
-                                    height: el.height ? `${el.height / 8}px` : 'auto',
+                                    width: el.width ? `${el.width / 3}px` : 'auto', // Adjusted for thumbnail preview
+                                    height: el.height ? `${el.height / 3}px` : 'auto',
                                     color: el.color,
                                     fontFamily: el.fontFamily,
-                                    fontSize: el.fontSize ? `${el.fontSize / 5}px` : '12px',
+                                    fontSize: el.fontSize ? `${el.fontSize / 3}px` : '10px',
                                     fontWeight: el.fontWeight,
                                     textAlign: el.align as any,
                                     opacity: el.opacity,
@@ -745,8 +746,18 @@ const IssueCertificate = () => {
                                   }}
                                 >
                                   {el.type === 'text' && content}
-                                  {(el.type === 'logo' || el.type === 'signature' || el.type === 'qrcode') && (
+                                  {(el.type === 'logo' || el.type === 'signature') && (
                                     <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                                  )}
+                                  {el.type === 'qrcode' && (
+                                    <div className="bg-white p-0.5 rounded-sm">
+                                      <QRCodeCanvas
+                                        value={`${window.location.origin}/verify/preview`}
+                                        size={el.width ? el.width / 8 : 40}
+                                        level="H"
+                                        includeMargin={false}
+                                      />
+                                    </div>
                                   )}
                                   {el.type === 'shape' && (
                                     <div style={{
@@ -839,11 +850,11 @@ const IssueCertificate = () => {
                                     position: 'absolute',
                                     left: `${el.x}%`,
                                     top: `${el.y}%`,
-                                    width: el.width ? `${el.width / 5}px` : 'auto',
-                                    height: el.height ? `${el.height / 5}px` : 'auto',
+                                    width: el.width ? `${el.width}px` : 'auto',
+                                    height: el.height ? `${el.height}px` : 'auto',
                                     color: el.color,
                                     fontFamily: el.fontFamily,
-                                    fontSize: el.fontSize ? `${el.fontSize / 3}px` : '18px',
+                                    fontSize: el.fontSize ? `${el.fontSize}px` : '20px',
                                     fontWeight: el.fontWeight,
                                     textAlign: el.align as any,
                                     opacity: el.opacity,
@@ -854,8 +865,18 @@ const IssueCertificate = () => {
                                   }}
                                 >
                                   {el.type === 'text' && el.content}
-                                  {(el.type === 'logo' || el.type === 'signature' || el.type === 'qrcode') && (
+                                  {(el.type === 'logo' || el.type === 'signature') && (
                                     <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                                  )}
+                                  {el.type === 'qrcode' && (
+                                    <div className="bg-white p-1 rounded-sm shadow-sm">
+                                      <QRCodeCanvas
+                                        value={`${window.location.origin}/verify/${certificateData.certificateId}`}
+                                        size={el.width ? el.width : 100}
+                                        level="H"
+                                        includeMargin={false}
+                                      />
+                                    </div>
                                   )}
                                   {el.type === 'shape' && (
                                     <div style={{
