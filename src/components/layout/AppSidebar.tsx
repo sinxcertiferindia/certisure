@@ -105,11 +105,8 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
             { icon: FileCheck, label: "Certificates", href: "/dashboard/certificates", disabled: false },
         ];
 
-        // Bulk Issuance - Pro/Enterprise only
-        const hasBulkIssuance =
-            organizationData?.plan?.permissions?.bulkIssuance ||
-            ["PRO", "ENTERPRISE", "PRO_PLAN", "ENTERPRISE_PLAN"].includes(organizationData?.subscriptionPlan || "") ||
-            ["PRO", "ENTERPRISE"].includes(organizationData?.plan?.planName || "");
+        // Bulk Issuance - Based on DB permissions
+        const hasBulkIssuance = !!organizationData?.plan?.permissions?.bulkIssuance;
 
         baseLinks.push({
             icon: Upload,
@@ -132,15 +129,15 @@ export function AppSidebar({ collapsed = false, onToggle }: AppSidebarProps) {
             { icon: Users, label: "Team Members", href: "/dashboard/team", disabled: false }
         );
 
-        // Analytics - Only for paid plans
-        const isPaidPlan = hasBulkIssuance; // Reuse logic as Analytics is generally Pro+
+        // Analytics - Based on DB permissions
+        const hasAnalytics = !!organizationData?.plan?.permissions?.analytics;
 
         baseLinks.push({
             icon: BarChart3,
             label: "Analytics",
             href: "/dashboard/analytics",
-            disabled: !isPaidPlan,
-            tooltip: !isPaidPlan ? "Analytics are available in paid plans only" : undefined
+            disabled: !hasAnalytics,
+            tooltip: !hasAnalytics ? "Analytics are available in paid plans only" : undefined
         });
 
         // Add Admin option only for ORG_ADMIN

@@ -11,15 +11,16 @@ const publicLimiter = rateLimit({
         message: "Too many requests from this IP, please try again after 15 minutes"
     }
 });
-const { issueCertificate, getCertificates, bulkIssueCertificates, getAllCertificates, deleteCertificate } = require("../controllers/certificateController");
+const { issueCertificate, getCertificates, bulkIssueCertificates, getAllCertificates, deleteCertificate, getAnalyticsData } = require("../controllers/certificateController");
 const auth = require("../middlewares/authMiddleware");
 const authorize = require("../middlewares/roleMiddleware");
-const { requirePaidPlan } = require("../middlewares/subscriptionMiddleware");
+const { checkPlanPermission } = require("../middlewares/subscriptionMiddleware");
 
 // Org Routes
 router.post("/", auth, issueCertificate); // Single certificate - all plans
 router.get("/", auth, getCertificates);
-router.post("/bulk", auth, requirePaidPlan, bulkIssueCertificates); // Bulk issue - PAID PLANS ONLY
+router.get("/analytics", auth, checkPlanPermission('analytics'), getAnalyticsData);
+router.post("/bulk", auth, checkPlanPermission('bulkIssuance'), bulkIssueCertificates); // Bulk issue - PERMISSION CHECKED
 
 // Master Routes (Authenticated users)
 router.get("/all", auth, authorize(["SUPER_ADMIN"]), getAllCertificates);

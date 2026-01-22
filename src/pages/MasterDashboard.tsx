@@ -63,6 +63,8 @@ const MasterDashboard = () => {
   const [planSettings, setPlanSettings] = useState<any[]>([]);
   const [planStats, setPlanStats] = useState<any>(null);
   const [isEditingPlan, setIsEditingPlan] = useState<any>(null);
+  const [isSavingPlans, setIsSavingPlans] = useState(false);
+  const [hasUnsavedPlanChanges, setHasUnsavedPlanChanges] = useState(false);
   const navigate = useNavigate();
   const organizationsRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -155,56 +157,59 @@ const MasterDashboard = () => {
     fetchDashboardData();
   }, []);
 
-  const handleUpdatePlanFeature = async (plan: string, feature: string, value: any, isEditorTool: boolean = false) => {
+  const handleUpdatePlanFeature = (plan: string, feature: string, value: any, isEditorTool: boolean = false) => {
+    const planIdx = planSettings.findIndex(p => p.planName === plan);
+    if (planIdx === -1) return;
+
+    const newSettings = [...planSettings];
+    const currentPlan = { ...newSettings[planIdx] };
+
+    if (isEditorTool) {
+      currentPlan.permissions = {
+        ...currentPlan.permissions,
+        editorTools: {
+          ...(currentPlan.permissions?.editorTools || {}),
+          [feature]: value
+        }
+      };
+    } else {
+      currentPlan.permissions = {
+        ...(currentPlan.permissions || {}),
+        [feature]: value
+      };
+    }
+
+    newSettings[planIdx] = currentPlan;
+    setPlanSettings(newSettings);
+    setHasUnsavedPlanChanges(true);
+  };
+
+  const handleSavePlanSettings = async () => {
+    setIsSavingPlans(true);
     try {
-      const planIdx = planSettings.findIndex(p => p.planName === plan);
-      if (planIdx === -1) return;
+      // Update each plan in the database
+      const updatePromises = planSettings.map(plan =>
+        api.put(`/plans/${plan.planName}`, plan)
+      );
 
-      let updateData;
-      if (isEditorTool) {
-        const currentEditorTools = planSettings[planIdx].permissions?.editorTools || {};
-        updateData = {
-          permissions: {
-            ...planSettings[planIdx].permissions,
-            editorTools: {
-              ...currentEditorTools,
-              [feature]: value
-            }
-          }
-        };
-      } else if (feature === 'maxTemplates' || feature === 'maxCertificatesPerMonth') {
-        updateData = { [feature]: value };
-      } else {
-        updateData = {
-          permissions: {
-            ...planSettings[planIdx].permissions,
-            [feature]: value
-          }
-        };
-      }
+      await Promise.all(updatePromises);
 
-      const response = await api.put(`/plans/${plan}`, updateData);
+      setHasUnsavedPlanChanges(false);
+      calculatePlanStats(organizations, planSettings);
 
-      if (response.data.success) {
-        const newSettings = [...planSettings];
-        newSettings[planIdx] = response.data.data;
-        setPlanSettings(newSettings);
-
-        // Recalculate stats locally after update
-        calculatePlanStats(organizations, newSettings);
-
-        toast({
-          title: "Plan Updated",
-          description: `Plan detail for ${plan} updated successfully.`,
-        });
-      }
-    } catch (error) {
-      console.error("Update error:", error);
       toast({
-        title: "Error",
-        description: "Failed to update plan detail.",
-        variant: "destructive",
+        title: 'Changes Saved',
+        description: 'All plan features and permissions have been updated in the database.',
       });
+    } catch (error) {
+      console.error('Save error:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save plan changes.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingPlans(false);
     }
   };
 
@@ -809,8 +814,20 @@ const MasterDashboard = () => {
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <Card>
                 <CardHeader>
-                  <CardTitle>Master Plan Controls</CardTitle>
-                  <CardDescription>Manage tool availability and permissions for each subscription plan.</CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Master Plan Controls</CardTitle>
+                      <CardDescription>Manage tool availability and permissions for each subscription plan.</CardDescription>
+                    </div>
+                    {hasUnsavedPlanChanges && (
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-warning font-medium animate-pulse">You have unsaved changes</span>
+                        <Button variant="hero" onClick={handleSavePlanSettings} disabled={isSavingPlans}>
+                          {isSavingPlans ? "Saving..." : "Save All Changes"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
@@ -882,6 +899,7 @@ const MasterDashboard = () => {
                           { key: 'signatureUpload', label: 'Signature Upload' },
                           { key: 'sizeControl', label: 'Certificate Size Control' },
                           { key: 'orientationControl', label: 'Orientation (Portrait/Landscape)' },
+                          { key: 'qrCode', label: 'QR Code Tool' },
                         ].map((tool) => (
                           <tr key={tool.key} className="border-b hover:bg-muted/20">
                             <td className="p-3 font-medium flex items-center gap-2">
@@ -966,97 +984,99 @@ const MasterDashboard = () => {
               </Card>
 
               {/* Edit Plan Modal */}
-              {isEditingPlan && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in">
-                  <Card className="w-full max-w-lg shadow-2xl">
-                    <CardHeader>
-                      <CardTitle className="flex justify-between items-center">
-                        Edit {isEditingPlan.planName} Plan
-                        <Button variant="ghost" size="icon" onClick={() => setIsEditingPlan(null)}>
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </CardTitle>
-                      <CardDescription>Modify pricing, limits and features for the {isEditingPlan.planName} tier.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Monthly Price (₹)</Label>
-                          <Input
-                            type="number"
-                            value={isEditingPlan.monthlyPrice}
-                            onChange={(e) => setIsEditingPlan({ ...isEditingPlan, monthlyPrice: parseInt(e.target.value) })}
-                          />
+              {
+                isEditingPlan && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in">
+                    <Card className="w-full max-w-lg shadow-2xl">
+                      <CardHeader>
+                        <CardTitle className="flex justify-between items-center">
+                          Edit {isEditingPlan.planName} Plan
+                          <Button variant="ghost" size="icon" onClick={() => setIsEditingPlan(null)}>
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </CardTitle>
+                        <CardDescription>Modify pricing, limits and features for the {isEditingPlan.planName} tier.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Monthly Price (₹)</Label>
+                            <Input
+                              type="number"
+                              value={isEditingPlan.monthlyPrice}
+                              onChange={(e) => setIsEditingPlan({ ...isEditingPlan, monthlyPrice: parseInt(e.target.value) })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Yearly Price (₹)</Label>
+                            <Input
+                              type="number"
+                              value={isEditingPlan.yearlyPrice}
+                              onChange={(e) => setIsEditingPlan({ ...isEditingPlan, yearlyPrice: parseInt(e.target.value) })}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Max Certs/Month</Label>
+                            <Input
+                              type="number"
+                              value={isEditingPlan.maxCertificatesPerMonth}
+                              onChange={(e) => setIsEditingPlan({ ...isEditingPlan, maxCertificatesPerMonth: parseInt(e.target.value) })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Max Team Members</Label>
+                            <Input
+                              type="number"
+                              value={isEditingPlan.maxTeamMembers}
+                              onChange={(e) => setIsEditingPlan({ ...isEditingPlan, maxTeamMembers: parseInt(e.target.value) })}
+                            />
+                          </div>
                         </div>
                         <div className="space-y-2">
-                          <Label>Yearly Price (₹)</Label>
-                          <Input
-                            type="number"
-                            value={isEditingPlan.yearlyPrice}
-                            onChange={(e) => setIsEditingPlan({ ...isEditingPlan, yearlyPrice: parseInt(e.target.value) })}
+                          <Label>Display Features (Comma separated)</Label>
+                          <textarea
+                            className="w-full min-h-[100px] p-3 rounded-md border text-sm"
+                            value={isEditingPlan.features.join(', ')}
+                            onChange={(e) => setIsEditingPlan({ ...isEditingPlan, features: e.target.value.split(',').map(s => s.trim()) })}
                           />
                         </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Max Certs/Month</Label>
-                          <Input
-                            type="number"
-                            value={isEditingPlan.maxCertificatesPerMonth}
-                            onChange={(e) => setIsEditingPlan({ ...isEditingPlan, maxCertificatesPerMonth: parseInt(e.target.value) })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Max Team Members</Label>
-                          <Input
-                            type="number"
-                            value={isEditingPlan.maxTeamMembers}
-                            onChange={(e) => setIsEditingPlan({ ...isEditingPlan, maxTeamMembers: parseInt(e.target.value) })}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Display Features (Comma separated)</Label>
-                        <textarea
-                          className="w-full min-h-[100px] p-3 rounded-md border text-sm"
-                          value={isEditingPlan.features.join(', ')}
-                          onChange={(e) => setIsEditingPlan({ ...isEditingPlan, features: e.target.value.split(',').map(s => s.trim()) })}
-                        />
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={() => setIsEditingPlan(null)}>Cancel</Button>
-                      <Button variant="hero" onClick={async () => {
-                        try {
-                          const res = await api.put(`/plans/${isEditingPlan.planName}`, isEditingPlan);
-                          if (res.data.success) {
-                            const newSettings = planSettings.map(p => p.planName === isEditingPlan.planName ? res.data.data : p);
-                            setPlanSettings(newSettings);
+                      </CardContent>
+                      <CardFooter className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsEditingPlan(null)}>Cancel</Button>
+                        <Button variant="hero" onClick={async () => {
+                          try {
+                            const res = await api.put(`/plans/${isEditingPlan.planName}`, isEditingPlan);
+                            if (res.data.success) {
+                              const newSettings = planSettings.map(p => p.planName === isEditingPlan.planName ? res.data.data : p);
+                              setPlanSettings(newSettings);
 
-                            // Refresh stats
-                            const statsRes = await api.get("/plans/analytics");
-                            if (statsRes.data.success) setPlanStats(statsRes.data.data);
+                              // Refresh stats
+                              const statsRes = await api.get("/plans/analytics");
+                              if (statsRes.data.success) setPlanStats(statsRes.data.data);
 
-                            setIsEditingPlan(null);
-                            toast({ title: "Plan Saved", description: "Changes applied platform-wide." });
+                              setIsEditingPlan(null);
+                              toast({ title: "Plan Saved", description: "Changes applied platform-wide." });
+                            }
+                          } catch (e) {
+                            toast({ title: "Save Failed", variant: "destructive" });
                           }
-                        } catch (e) {
-                          toast({ title: "Save Failed", variant: "destructive" });
-                        }
-                      }}>
-                        Save Changes
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                </div>
-              )}
-            </div>
+                        }}>
+                          Save Changes
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  </div>
+                )
+              }
+            </div >
           )}
-        </div>
-      </main>
+        </div >
+      </main >
 
       {/* Add Organization Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+      < Dialog open={showAddDialog} onOpenChange={setShowAddDialog} >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Organization</DialogTitle>
@@ -1193,8 +1213,8 @@ const MasterDashboard = () => {
             </div>
           </form>
         </DialogContent>
-      </Dialog>
-    </div>
+      </Dialog >
+    </div >
   );
 };
 

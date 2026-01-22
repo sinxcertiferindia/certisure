@@ -27,7 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
-import { QRCodeCanvas } from "qrcode.react";
+import { QRCodeSVG } from "qrcode.react";
 
 interface CertificateData {
   recipientName: string;
@@ -277,17 +277,30 @@ const IssueCertificate = () => {
 
     try {
       const element = certificateRef.current;
+
+      // Ensure transform is temporarily removed for clean capture
+      const originalTransform = element.style.transform;
+      element.style.transform = 'none';
+      element.style.margin = '0';
+
+      // Wait for layout reflow and images to be ready
+      await new Promise(r => setTimeout(r, 500));
+
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 2, // High resolution
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: null,
+        width: 1000, // Match fixed width
+        height: element.offsetHeight,
       });
 
-      const imgData = canvas.toDataURL('image/png');
-      const orientation = canvas.width > canvas.height ? 'l' : 'p';
+      // Restore original transform
+      element.style.transform = originalTransform;
+
+      const imgData = canvas.toDataURL('image/png', 1.0);
       const pdf = new jsPDF({
-        orientation: orientation,
+        orientation: canvas.width > canvas.height ? 'l' : 'p',
         unit: 'px',
         format: [canvas.width, canvas.height]
       });
@@ -314,17 +327,31 @@ const IssueCertificate = () => {
 
     try {
       const element = certificateRef.current;
+
+      const originalTransform = element.style.transform;
+      element.style.transform = 'none';
+      element.style.margin = '0';
+
+      await new Promise(r => setTimeout(r, 500));
+
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        width: 1000,
+        height: element.offsetHeight,
       });
+
+      element.style.transform = originalTransform;
 
       const link = document.createElement('a');
       link.download = `${certificateData?.certificateId || 'Certificate'}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.9);
+      link.href = canvas.toDataURL('image/jpeg', 0.95);
+
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
 
       toast({
         title: "Download Started",
@@ -706,93 +733,113 @@ const IssueCertificate = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="aspect-[1.414/1] bg-white relative shadow-inner overflow-hidden flex items-center justify-center">
-                    {selectedTemplate ? (
-                      <div className="w-full h-full relative" style={{
-                        backgroundColor: selectedTemplate.backgroundColor || '#ffffff',
-                        backgroundImage: selectedTemplate.backgroundImage ? `url(${selectedTemplate.backgroundImage})` : 'none',
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center'
-                      }}>
-                        {(() => {
-                          try {
-                            const canvasElements: any[] = JSON.parse(selectedTemplate.canvasJSON || '[]');
-                            return canvasElements.map((el: any) => {
-                              let content = el.content;
-                              if (content?.includes("{{recipient_name}}")) content = content.replace("{{recipient_name}}", formData.recipientName || "RECIPIENT NAME");
-                              if (content?.includes("{{course_name}}")) content = content.replace("{{course_name}}", formData.courseName || "COURSE NAME");
-                              if (content?.includes("{{issue_date}}")) content = content.replace("{{issue_date}}", formData.issueDate || "ISSUE DATE");
-                              if (content?.includes("{{certificate_id}}")) content = content.replace("{{certificate_id}}", "CERT-XXXX-XXXX");
+                  <div className="bg-[#f8fafc] p-4 flex items-center justify-center min-h-[400px]">
+                    <div className="w-full max-w-[500px] mx-auto overflow-hidden">
+                      <div
+                        ref={certificateRef}
+                        style={{
+                          width: '1000px',
+                          height: (selectedTemplate?.orientation === 'portrait' ? '1414px' : '707px'),
+                          position: 'relative',
+                          backgroundColor: selectedTemplate?.backgroundColor || '#ffffff',
+                          backgroundImage: selectedTemplate?.backgroundImage ? `url(${selectedTemplate.backgroundImage})` : 'none',
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                          overflow: 'hidden',
+                          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                          // Scale for preview
+                          transform: 'scale(0.45)', // 1000px -> 450px
+                          transformOrigin: 'top center',
+                        }}
+                        className="bg-white border relative"
+                      >
+                        {selectedTemplate ? (
+                          <>
+                            {(() => {
+                              try {
+                                const canvasElements: any[] = JSON.parse(selectedTemplate.canvasJSON || '[]');
+                                return canvasElements.map((el: any) => {
+                                  let content = el.content;
+                                  if (content?.includes("{{recipient_name}}")) content = content.replace("{{recipient_name}}", formData.recipientName || "RECIPIENT NAME");
+                                  if (content?.includes("{{course_name}}")) content = content.replace("{{course_name}}", formData.courseName || "COURSE NAME");
+                                  if (content?.includes("{{issue_date}}")) content = content.replace("{{issue_date}}", formData.issueDate || "ISSUE DATE");
+                                  if (content?.includes("{{certificate_id}}")) content = content.replace("{{certificate_id}}", "CERT-XXXX-XXXX");
 
-                              return (
-                                <div
-                                  key={el.id}
-                                  style={{
-                                    position: 'absolute',
-                                    left: `${el.x}%`,
-                                    top: `${el.y}%`,
-                                    width: el.width ? `${el.width / 3}px` : 'auto', // Adjusted for thumbnail preview
-                                    height: el.height ? `${el.height / 3}px` : 'auto',
-                                    color: el.color,
-                                    fontFamily: el.fontFamily,
-                                    fontSize: el.fontSize ? `${el.fontSize / 3}px` : '10px',
-                                    fontWeight: el.fontWeight,
-                                    textAlign: el.align as any,
-                                    opacity: el.opacity,
-                                    padding: `${(el.padding || 0) / 4}px`,
-                                    zIndex: el.type === 'logo' ? 10 : 5,
-                                    transform: 'translate(-50%, -50%)',
-                                    maxWidth: '90%'
-                                  }}
-                                >
-                                  {el.type === 'text' && content}
-                                  {(el.type === 'logo' || el.type === 'signature') && (
-                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
-                                  )}
-                                  {el.type === 'qrcode' && (
-                                    <div className="bg-white p-0.5 rounded-sm">
-                                      <QRCodeCanvas
-                                        value={`${window.location.origin}/verify/preview`}
-                                        size={el.width ? el.width / 8 : 40}
-                                        level="H"
-                                        includeMargin={false}
-                                      />
+                                  return (
+                                    <div
+                                      key={el.id}
+                                      style={{
+                                        position: 'absolute',
+                                        left: `${el.x}%`,
+                                        top: `${el.y}%`,
+                                        width: el.width ? `${el.width}px` : 'auto',
+                                        height: el.height ? `${el.height}px` : 'auto',
+                                        color: el.color,
+                                        fontFamily: el.fontFamily,
+                                        fontSize: el.fontSize ? `${el.fontSize}px` : '18px',
+                                        fontWeight: el.fontWeight,
+                                        textAlign: el.align as any,
+                                        opacity: el.opacity,
+                                        padding: `${(el.padding || 0)}px`,
+                                        zIndex: el.type === 'logo' ? 10 : 5,
+                                        transform: 'translate(-50%, -50%)',
+                                        maxWidth: '95%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: el.align === 'center' ? 'center' : (el.align === 'right' ? 'flex-end' : 'flex-start'),
+                                      }}
+                                    >
+                                      {el.type === 'text' && content}
+                                      {(el.type === 'logo' || el.type === 'signature') && (
+                                        <img src={el.imageUrl || organizationLogo} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                                      )}
+                                      {el.type === 'qrcode' && (
+                                        <div className="bg-white p-1 rounded-sm shadow-sm inline-block">
+                                          <QRCodeSVG
+                                            value={`${window.location.origin}/verify/preview`}
+                                            size={el.width ? el.width : 100}
+                                            level="H"
+                                            includeMargin={false}
+                                          />
+                                        </div>
+                                      )}
+                                      {el.type === 'shape' && (
+                                        <div style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          backgroundColor: el.fillColor,
+                                          border: el.shapeType === 'line' ? 'none' : `${(el.strokeWidth || 1)}px solid ${el.color}`,
+                                          borderTop: el.shapeType === 'line' ? `${(el.strokeWidth || 1)}px solid ${el.color}` : undefined,
+                                          borderRadius: el.shapeType === 'circle' ? '50%' : `${el.borderRadius || 0}px`
+                                        }} />
+                                      )}
                                     </div>
-                                  )}
-                                  {el.type === 'shape' && (
-                                    <div style={{
-                                      width: '100%',
-                                      height: '100%',
-                                      backgroundColor: el.fillColor,
-                                      border: `${(el.strokeWidth || 1) / 4}px solid ${el.color}`,
-                                      borderRadius: el.shapeType === 'circle' ? '50%' : (el.borderRadius || 0)
-                                    }} />
-                                  )}
-                                </div>
-                              );
-                            });
-                          } catch (e) {
-                            return <div className="p-4 text-xs text-muted-foreground">Preview generation failed</div>;
-                          }
-                        })()}
-                      </div>
-                    ) : (
-                      /* Default Free Style Preview */
-                      <div className="w-full h-full p-8 flex flex-col items-center justify-center text-center space-y-3 bg-gradient-to-br from-white to-slate-50 border-8 border-double border-primary/20">
-                        {organizationLogo ? (
-                          <img src={organizationLogo} alt="Org Logo" className="w-12 h-12 object-contain grayscale opacity-50" />
+                                  );
+                                });
+                              } catch (e) {
+                                return <p className="p-4 text-xs text-destructive">Invalid canvas data</p>;
+                              }
+                            })()}
+                          </>
                         ) : (
-                          <Award className="w-8 h-8 text-primary/30" />
+                          /* Default Free Style Preview */
+                          <div className="w-full h-full p-8 flex flex-col items-center justify-center text-center space-y-3 bg-gradient-to-br from-white to-slate-50 border-8 border-double border-primary/20">
+                            {organizationLogo ? (
+                              <img src={organizationLogo} alt="Org Logo" className="w-48 h-48 object-contain grayscale opacity-50" />
+                            ) : (
+                              <Award className="w-32 h-32 text-primary/30" />
+                            )}
+                            <div className="space-y-4">
+                              <h4 className="text-2xl font-bold tracking-widest text-primary/40 uppercase">Certificate of {formData.certificateType}</h4>
+                              <p className="text-xl text-muted-foreground/60 italic">This is to certify that</p>
+                              <h3 className="text-5xl font-bold text-slate-800">{formData.recipientName || "Recipient Name"}</h3>
+                              <p className="text-xl text-muted-foreground/60">has successfully completed the</p>
+                              <h4 className="text-3xl font-semibold text-primary/60">{formData.courseName || "Course Name"}</h4>
+                            </div>
+                          </div>
                         )}
-                        <div className="space-y-1">
-                          <h4 className="text-[10px] font-bold tracking-widest text-primary/40 uppercase">Certificate of {formData.certificateType}</h4>
-                          <p className="text-[8px] text-muted-foreground/60 italic">This is to certify that</p>
-                          <h3 className="text-sm font-bold text-slate-800">{formData.recipientName || "Recipient Name"}</h3>
-                          <p className="text-[8px] text-muted-foreground/60">has successfully completed the</p>
-                          <h4 className="text-[10px] font-semibold text-primary/60">{formData.courseName || "Course Name"}</h4>
-                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
                 </CardContent>
                 <CardFooter className="py-3 px-4 bg-muted/30 border-t flex justify-between items-center">
@@ -870,7 +917,7 @@ const IssueCertificate = () => {
                                   )}
                                   {el.type === 'qrcode' && (
                                     <div className="bg-white p-1 rounded-sm shadow-sm">
-                                      <QRCodeCanvas
+                                      <QRCodeSVG
                                         value={`${window.location.origin}/verify/${certificateData.certificateId}`}
                                         size={el.width ? el.width : 100}
                                         level="H"

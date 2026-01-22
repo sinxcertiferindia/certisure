@@ -30,7 +30,7 @@ import {
   X,
   FileText,
 } from "lucide-react";
-import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
+import { QRCodeSVG } from "qrcode.react";
 import { Html5Qrcode } from "html5-qrcode";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -148,7 +148,7 @@ const Verify = () => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || '/api';
       // Validate with Backend
-      const response = await fetch(`${apiUrl}/certificate/download`, {
+      const response = await fetch(`${apiUrl}/certificates/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -183,24 +183,32 @@ const Verify = () => {
     if (!certificateRef.current) return;
 
     try {
-      // Find the certificate element
       const element = certificateRef.current;
 
-      // Use html2canvas
+      // Ensure transform is temporarily removed for clean capture
+      const originalTransform = element.style.transform;
+      element.style.transform = 'none';
+      element.style.margin = '0';
+
+      // Wait for layout reflow and images to be ready
+      await new Promise(r => setTimeout(r, 500));
+
       const canvas = await html2canvas(element, {
-        scale: 2, // High quality
-        useCORS: true, // For images
+        scale: 2, // High resolution
+        useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: null, // Preserve transparent backgrounds if any
+        width: 1000, // Match fixed width
+        height: element.offsetHeight,
       });
 
-      const imgData = canvas.toDataURL('image/png');
+      // Restore original transform
+      element.style.transform = originalTransform;
+      element.style.margin = '0 auto';
 
-      // Determine orientation based on dimensions
-      const orientation = canvas.width > canvas.height ? 'l' : 'p';
-
+      const imgData = canvas.toDataURL('image/png', 1.0);
       const pdf = new jsPDF({
-        orientation: orientation,
+        orientation: canvas.width > canvas.height ? 'l' : 'p',
         unit: 'px',
         format: [canvas.width, canvas.height]
       });
@@ -219,17 +227,32 @@ const Verify = () => {
 
     try {
       const element = certificateRef.current;
+
+      const originalTransform = element.style.transform;
+      element.style.transform = 'none';
+      element.style.margin = '0';
+
+      await new Promise(r => setTimeout(r, 500));
+
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        width: 1000,
+        height: element.offsetHeight,
       });
+
+      element.style.transform = originalTransform;
+      element.style.margin = '0 auto';
 
       const link = document.createElement('a');
       link.download = `${verificationResult?.id || 'Certificate'}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.9);
+      link.href = canvas.toDataURL('image/jpeg', 0.95);
+
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
 
       toast({
         title: "Download Started",
@@ -307,7 +330,7 @@ const Verify = () => {
     setMultipleMatches([]);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/certificate/verify/${id}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/certificates/verify/${id}`);
       const data = await response.json();
 
       if (data.success && data.data) {
@@ -346,7 +369,7 @@ const Verify = () => {
 
     try {
       const apiUrl = import.meta.env.VITE_API_URL || '/api';
-      const response = await fetch(`${apiUrl}/certificate/download-without-id`, {
+      const response = await fetch(`${apiUrl}/certificates/download-without-id`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(detailsInput)
@@ -639,77 +662,102 @@ const Verify = () => {
                   <CardContent className="p-0">
                     <div className="grid lg:grid-cols-3">
                       {/* Certificate Visual Rendering */}
-                      <div className="lg:col-span-2 bg-white p-4 border-r">
-                        <div ref={certificateRef} className="aspect-[1.414/1] w-full relative shadow-lg mx-auto overflow-hidden border">
-                          {verificationResult.renderData ? (
-                            <div className="w-full h-full relative" style={{
-                              backgroundColor: verificationResult.renderData.backgroundColor || '#ffffff',
-                              backgroundImage: verificationResult.renderData.backgroundImage ? `url(${verificationResult.renderData.backgroundImage})` : 'none',
+                      <div className="lg:col-span-2 bg-[#f8fafc] p-6 border-r flex items-center justify-center min-h-[400px]">
+                        <div className="w-full max-w-[800px] mx-auto">
+                          <div
+                            ref={certificateRef}
+                            style={{
+                              width: '1000px', // Fixed design width
+                              height: (verificationResult.renderData?.orientation === 'portrait' ? '1414px' : '707px'), // Aspect ratio
+                              position: 'relative',
+                              backgroundColor: verificationResult.renderData?.backgroundColor || '#ffffff',
+                              backgroundImage: verificationResult.renderData?.backgroundImage ? `url(${verificationResult.renderData.backgroundImage})` : 'none',
                               backgroundSize: 'cover',
-                              backgroundPosition: 'center'
-                            }}>
-                              {verificationResult.renderData.elements.map((el: any) => (
-                                <div
-                                  key={el.id}
-                                  style={{
-                                    position: 'absolute',
-                                    left: `${el.x}%`,
-                                    top: `${el.y}%`,
-                                    width: el.width ? `${el.width}px` : 'auto',
-                                    height: el.height ? `${el.height}px` : 'auto',
-                                    color: el.color,
-                                    fontFamily: el.fontFamily,
-                                    fontSize: el.fontSize ? `${el.fontSize}px` : '18px',
-                                    fontWeight: el.fontWeight,
-                                    textAlign: el.align as any,
-                                    opacity: el.opacity,
-                                    padding: `${(el.padding || 0) / 2}px`,
-                                    zIndex: el.type === 'logo' ? 10 : 5,
-                                    transform: 'translate(-50%, -50%)',
-                                    maxWidth: '90%'
-                                  }}
-                                >
-                                  {el.type === 'text' && el.content}
-                                  {(el.type === 'logo' || el.type === 'signature') && (
-                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
-                                  )}
-                                  {el.type === 'qrcode' && (
-                                    <div className="bg-white p-1 rounded-sm shadow-sm inline-block">
-                                      <QRCodeCanvas
-                                        value={window.location.href}
-                                        size={el.width ? el.width : 100}
-                                        level="H"
-                                        includeMargin={false}
-                                      />
+                              backgroundPosition: 'center',
+                              overflow: 'hidden',
+                              boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
+                              // Scaling logic for display
+                              transform: `scale(${typeof window !== 'undefined' && window.innerWidth < 1024 ? (window.innerWidth - 80) / 1000 : 0.75})`,
+                              transformOrigin: 'top center',
+                              margin: '0 auto',
+                            }}
+                            className="bg-white border relative"
+                          >
+                            {verificationResult.renderData ? (
+                              <>
+                                {verificationResult.renderData.elements.map((el: any) => (
+                                  <div
+                                    key={el.id}
+                                    style={{
+                                      position: 'absolute',
+                                      left: `${el.x}%`,
+                                      top: `${el.y}%`,
+                                      width: el.width ? `${el.width}px` : 'auto',
+                                      height: el.height ? `${el.height}px` : 'auto',
+                                      color: el.color,
+                                      fontFamily: el.fontFamily,
+                                      fontSize: el.fontSize ? `${el.fontSize}px` : '18px',
+                                      fontWeight: el.fontWeight,
+                                      textAlign: el.align as any,
+                                      opacity: el.opacity,
+                                      padding: `${(el.padding || 0)}px`,
+                                      zIndex: el.type === 'logo' ? 10 : 5,
+                                      transform: 'translate(-50%, -50%)',
+                                      maxWidth: '95%',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: el.align === 'center' ? 'center' : (el.align === 'right' ? 'flex-end' : 'flex-start'),
+                                    }}
+                                  >
+                                    {el.type === 'text' && el.content}
+                                    {(el.type === 'logo' || el.type === 'signature') && (
+                                      <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                                    )}
+                                    {el.type === 'qrcode' && (
+                                      <div className="bg-white p-1 rounded-sm shadow-sm inline-block">
+                                        {el.imageUrl ? (
+                                          <img src={el.imageUrl} alt="QR Code" className="w-full h-full" crossOrigin="anonymous" />
+                                        ) : (
+                                          <QRCodeSVG
+                                            value={window.location.href}
+                                            size={el.width ? el.width : 100}
+                                            level="H"
+                                            includeMargin={false}
+                                          />
+                                        )}
+                                      </div>
+                                    )}
+                                    {el.type === 'shape' && (
+                                      <div style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        backgroundColor: el.fillColor,
+                                        border: el.shapeType === 'line' ? 'none' : `${(el.strokeWidth || 1)}px solid ${el.color}`,
+                                        borderTop: el.shapeType === 'line' ? `${(el.strokeWidth || 1)}px solid ${el.color}` : undefined,
+                                        borderRadius: el.shapeType === 'circle' ? '50%' : `${el.borderRadius || 0}px`
+                                      }} />
+                                    )}
+                                  </div>
+                                ))}
+                              </>
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-slate-50">
+                                <div className="text-center p-8 space-y-4">
+                                  {verificationResult.logo && <img src={verificationResult.logo} className="w-24 h-24 mx-auto object-contain grayscale" crossOrigin="anonymous" />}
+                                  <h2 className="text-3xl font-bold">{verificationResult.courseName}</h2>
+                                  <p className="text-lg">Verified Certificate for {verificationResult.recipientName}</p>
+                                  {verificationResult.qrCodeImage && (
+                                    <div className="mt-6 p-3 bg-white inline-block border rounded-lg shadow-sm">
+                                      <img src={verificationResult.qrCodeImage} className="w-32 h-32 mx-auto" alt="QR Code" crossOrigin="anonymous" />
+                                      <p className="text-[10px] text-muted-foreground mt-2 font-medium">Scan to Verify</p>
                                     </div>
                                   )}
-                                  {el.type === 'shape' && (
-                                    <div style={{
-                                      width: '100%',
-                                      height: '100%',
-                                      backgroundColor: el.fillColor,
-                                      border: `${(el.strokeWidth || 1) / 2}px solid ${el.color}`,
-                                      borderRadius: el.shapeType === 'circle' ? '50%' : (el.borderRadius || 0)
-                                    }} />
-                                  )}
                                 </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-slate-50">
-                              <div className="text-center p-8 space-y-4">
-                                {verificationResult.logo && <img src={verificationResult.logo} className="w-24 h-24 mx-auto object-contain grayscale" crossOrigin="anonymous" />}
-                                <h2 className="text-3xl font-bold">{verificationResult.courseName}</h2>
-                                <p className="text-lg">Verified Certificate for {verificationResult.recipientName}</p>
-                                {verificationResult.qrCodeImage && (
-                                  <div className="mt-6 p-3 bg-white inline-block border rounded-lg shadow-sm">
-                                    <img src={verificationResult.qrCodeImage} className="w-32 h-32 mx-auto" alt="QR Code" crossOrigin="anonymous" />
-                                    <p className="text-[10px] text-muted-foreground mt-2 font-medium">Scan to Verify</p>
-                                  </div>
-                                )}
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
+                          {/* Placeholder for spacer because of transform scaling */}
+                          <div style={{ height: (window.innerWidth < 1024 ? 400 : 500) }}></div>
                         </div>
                       </div>
 

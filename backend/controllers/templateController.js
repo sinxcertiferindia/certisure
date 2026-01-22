@@ -47,19 +47,53 @@ const createCertificateTemplate = async (req, res) => {
       });
     }
 
+    // 🛡️ BACKEND ENFORCEMENT: Check Plan Permissions for Editor Tools
+    const permissions = organization.planId?.permissions || {};
+    const editorTools = permissions.editorTools || {};
+
+    // 1. Check for QR Code Insertion if not allowed
+    if (canvasJSON) {
+      const elements = typeof canvasJSON === 'string' ? JSON.parse(canvasJSON).elements : canvasJSON.elements;
+      const hasQRCode = elements?.some(el => el.type === 'qrcode');
+      if (hasQRCode && !editorTools.qrCode) {
+        return res.status(403).json({ success: false, message: "QR Code insertion is not allowed on your current plan." });
+      }
+
+      // 2. Check for Text Elements if textEditing is disabled
+      const hasText = elements?.some(el => el.type === 'text');
+      if (hasText && editorTools.textEditing === false) {
+        return res.status(403).json({ success: false, message: "Text editing is not allowed on your current plan." });
+      }
+
+      // 3. Check for Shapes if shapes is disabled
+      const hasShapes = elements?.some(el => el.type === 'shape');
+      if (hasShapes && !editorTools.shapes) {
+        return res.status(403).json({ success: false, message: "Shape elements are not allowed on your current plan." });
+      }
+    }
+
+    // 4. Check for Background Image
+    if (backgroundImage && !editorTools.backgroundImage) {
+      return res.status(403).json({ success: false, message: "Custom background images are not allowed on your current plan." });
+    }
+
+    // 5. Check for Background Color
+    if (backgroundColor && backgroundColor !== '#ffffff' && !editorTools.backgroundColor) {
+      return res.status(403).json({ success: false, message: "Background color customization is not allowed on your current plan." });
+    }
+
+    // 6. Check for Size/Orientation Control
+    if ((width || height || orientation) && !editorTools.sizeControl) {
+      // Allow if it matches default size (A4)
+      const isDefaultSize = (width === 297 && height === 210) || (width === 210 && height === 297);
+      if (!isDefaultSize) {
+        return res.status(403).json({ success: false, message: "Certificate size control is not allowed on your current plan." });
+      }
+    }
+
     // FREE Plan Restrictions
     if (isFreePlan) {
-      // Validate that only logo and signature elements were provided/modified
-      // In a real scenario, we might compare against a starter template here.
-      // For now, we'll ensure they don't add forbidden elements if they weren't in the starter.
-      // Since Edit mode now always loads a starter/existing, we primarily care about modifications.
-      try {
-        const elements = typeof canvasJSON === 'string' ? JSON.parse(canvasJSON).elements : canvasJSON.elements;
-        // Basic check: logo and signature must exist or be the only ones modified? 
-        // Actually, the frontend will gate this, but backend should at least allow the save.
-      } catch (e) {
-        return res.status(400).json({ message: "Invalid canvas JSON" });
-      }
+      // FREE users logic already handled by (isFreePlan || !canCreateCustom) above
     }
 
     // If this is set as default, unset other defaults
@@ -239,7 +273,7 @@ const updateCertificateTemplate = async (req, res) => {
     } = req.body;
 
     // Check for organization existence
-    const organization = await Organization.findById(orgId).select("subscriptionPlan");
+    const organization = await Organization.findById(orgId).populate("planId");
     if (!organization) {
       return res.status(404).json({
         success: false,
@@ -254,32 +288,58 @@ const updateCertificateTemplate = async (req, res) => {
     const template = await CertificateTemplate.findOne({ _id: id, orgId: orgId });
 
     if (!template) {
-      // If template not found, maybe they are trying to "Save As" a new template from a default one
-      // But for FREE users, we need to check if they already reached the limit of 2.
-      if (organization.subscriptionPlan === "FREE") {
-        const savedTemplatesCount = await CertificateTemplate.countDocuments({ orgId: orgId });
-        if (savedTemplatesCount >= 2) {
-          return res.status(403).json({
-            success: false,
-            message: "Free plan allows editing & saving only 2 templates. Upgrade to unlock unlimited templates."
-          });
-        }
-      }
       return res.status(404).json({ message: "Template not found" });
+    }
+
+    // 🛡️ BACKEND ENFORCEMENT: Check Plan Permissions for Editor Tools
+    const permissions = organization.planId?.permissions || {};
+    const editorTools = permissions.editorTools || {};
+
+    // 1. Check for QR Code Insertion if not allowed
+    if (canvasJSON) {
+      const elements = typeof canvasJSON === 'string' ? JSON.parse(canvasJSON).elements : canvasJSON.elements;
+      const hasQRCode = elements?.some(el => el.type === 'qrcode');
+      if (hasQRCode && !editorTools.qrCode) {
+        return res.status(403).json({ success: false, message: "QR Code insertion is not allowed on your current plan." });
+      }
+
+      // 2. Check for Text Elements if textEditing is disabled
+      const hasText = elements?.some(el => el.type === 'text');
+      if (hasText && editorTools.textEditing === false) {
+        return res.status(403).json({ success: false, message: "Text editing is not allowed on your current plan." });
+      }
+
+      // 3. Check for Shapes if shapes is disabled
+      const hasShapes = elements?.some(el => el.type === 'shape');
+      if (hasShapes && !editorTools.shapes) {
+        return res.status(403).json({ success: false, message: "Shape elements are not allowed on your current plan." });
+      }
+    }
+
+    // 4. Check for Background Image
+    if (backgroundImage && !editorTools.backgroundImage) {
+      return res.status(403).json({ success: false, message: "Custom background images are not allowed on your current plan." });
+    }
+
+    // 5. Check for Background Color
+    if (backgroundColor && backgroundColor !== '#ffffff' && !editorTools.backgroundColor) {
+      return res.status(403).json({ success: false, message: "Background color customization is not allowed on your current plan." });
+    }
+
+    // 6. Check for Size/Orientation Control
+    if ((width || height || orientation) && !editorTools.sizeControl) {
+      // Allow if it matches default size (A4)
+      const isDefaultSize = (width === 297 && height === 210) || (width === 210 && height === 297);
+      if (!isDefaultSize) {
+        return res.status(403).json({ success: false, message: "Certificate size control is not allowed on your current plan." });
+      }
     }
 
     // ✏️ FREE users can edit/save ONLY up to 2 templates
     if (organization.subscriptionPlan === "FREE" ||
       ["FREE", "BASIC", "FREE_PLAN"].includes(organization.planId?.planName || "")) {
       const savedTemplatesCount = await CertificateTemplate.countDocuments({ orgId: orgId });
-
-      // If they already have 2 templates and this is not an update to one of them, block it
-      if (savedTemplatesCount >= 2 && !template) {
-        return res.status(403).json({
-          success: false,
-          message: "Free plan allows editing & saving only 2 templates. Upgrade to unlock unlimited templates."
-        });
-      }
+      // Logic for FREE plan is already restrictive, but we'll keep it consistent
     }
 
     // Update fields

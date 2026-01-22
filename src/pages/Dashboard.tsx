@@ -149,10 +149,10 @@ const Dashboard = () => {
   };
 
   const handleUploadBatch = () => {
-    if (organizationPlan === "FREE") {
+    if (!organizationData?.plan?.permissions?.bulkIssuance) {
       toast({
-        title: "Upgrade Required",
-        description: "Bulk certificate issuance is available for Pro and Enterprise plans only.",
+        title: "Feature Restricted",
+        description: "Bulk certificate issuance is not enabled for your plan. Please contact your administrator.",
         variant: "destructive",
       });
       return;
@@ -470,13 +470,17 @@ const Dashboard = () => {
                             onClick={handleUploadBatch}
                             disabled={!organizationData?.plan?.permissions?.bulkIssuance}
                           >
-                            {organizationData?.plan?.permissions?.bulkIssuance ? "Upload Batch" : "Upgrade to Pro"}
+                            {organizationData?.plan?.permissions?.bulkIssuance ? "Upload Batch" : "Disabled"}
                           </Button>
                         </span>
                       </TooltipTrigger>
                       {!organizationData?.plan?.permissions?.bulkIssuance && (
                         <TooltipContent side="top" align="center">
-                          <p>🔒 Bulk certificate issuing is available in paid plans only</p>
+                          <p>
+                            {organizationPlan === "FREE"
+                              ? "🔒 Bulk certificate issuing is available in paid plans only"
+                              : "🚫 This feature is disabled by your plan administrator"}
+                          </p>
                         </TooltipContent>
                       )}
                     </Tooltip>
@@ -499,24 +503,31 @@ const Dashboard = () => {
                   <p className="text-sm text-muted-foreground mb-4 flex-1">
                     View detailed analytics and certificate reports.
                   </p>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => {
-                      if (organizationPlan === "FREE") {
-                        toast({
-                          title: "Upgrade Required",
-                          description: "Analytics are available in paid plans only",
-                          variant: "destructive",
-                        });
-                        return;
-                      }
-                      navigate("/dashboard/analytics");
-                    }}
-                    disabled={organizationPlan === "FREE"}
-                  >
-                    {organizationPlan === "FREE" ? "Upgrade to Pro" : "View Analytics"}
-                  </Button>
+                  <TooltipProvider>
+                    <Tooltip delayDuration={0}>
+                      <TooltipTrigger asChild>
+                        <span className="w-full block" tabIndex={0}>
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => navigate("/dashboard/analytics")}
+                            disabled={!organizationData?.plan?.permissions?.analytics}
+                          >
+                            {organizationData?.plan?.permissions?.analytics ? "View Analytics" : "Disabled"}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {!organizationData?.plan?.permissions?.analytics && (
+                        <TooltipContent side="top" align="center">
+                          <p>
+                            {organizationPlan === "FREE"
+                              ? "🔒 Analytics are available in paid plans only"
+                              : "🚫 This feature is disabled by your plan administrator"}
+                          </p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
                 </CardContent>
               </Card>
             </motion.div>

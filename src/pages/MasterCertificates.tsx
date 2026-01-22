@@ -26,7 +26,7 @@ const MasterCertificates = () => {
   const fetchCertificates = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get("/certificate/all");
+      const response = await api.get("/certificates/all");
       if (response.data.success) {
         setCertificates(response.data.data);
       }
@@ -48,7 +48,7 @@ const MasterCertificates = () => {
     }
 
     try {
-      const response = await api.delete(`/certificate/${id}`);
+      const response = await api.delete(`/certificates/${id}`);
       if (response.data.success) {
         toast({
           title: "Certificate Deleted",

@@ -59,107 +59,31 @@ const Analytics = () => {
       // Check user plan first
       const userResponse = await api.get("/users/me");
       if (userResponse.data.success) {
-        const plan = userResponse.data.data.organization?.plan?.planName ||
-          userResponse.data.data.organization?.subscriptionPlan || "FREE";
+        const organization = userResponse.data.data.organization;
+        const plan = organization?.plan?.planName || organization?.subscriptionPlan || "FREE";
+        const hasAnalytics = organization?.plan?.permissions?.analytics;
+
         setOrganizationPlan(plan);
 
-        // Block FREE users
-        if (plan === "FREE") {
+        // Block users without analytics permission
+        if (!hasAnalytics) {
           toast({
-            title: "Upgrade Required",
-            description: "Analytics are available in paid plans only",
+            title: "Access Denied",
+            description: plan === "FREE"
+              ? "Analytics are available in paid plans only"
+              : "This feature is disabled by your plan administrator",
             variant: "destructive",
           });
+          setIsLoading(false);
           return;
         }
       }
 
-      // Fetch all certificates
-      const certsResponse = await api.get("/certificates");
-      if (!certsResponse.data.success) {
-        throw new Error("Failed to fetch certificates");
+      // Fetch pre-calculated analytics from backend
+      const response = await api.get("/certificates/analytics");
+      if (response.data.success) {
+        setAnalyticsData(response.data.data);
       }
-
-      const certificates = certsResponse.data.data || [];
-
-      // Calculate analytics
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      const totalCertificates = certificates.length;
-      const activeCertificates = certificates.filter((c: any) => c.status === "ACTIVE" || c.status === "active").length;
-      const pendingCertificates = certificates.filter((c: any) => c.status === "PENDING" || c.status === "pending").length;
-      const expiredCertificates = certificates.filter((c: any) => {
-        if (c.expiryDate) {
-          return new Date(c.expiryDate) < now;
-        }
-        return false;
-      }).length;
-      const revokedCertificates = certificates.filter((c: any) => c.status === "REVOKED" || c.status === "revoked").length;
-
-      const issuedToday = certificates.filter((c: any) => new Date(c.createdAt) >= startOfToday).length;
-      const issuedThisMonth = certificates.filter((c: any) => new Date(c.createdAt) >= startOfMonth).length;
-
-      // Group by course
-      const courseMap = new Map<string, number>();
-      certificates.forEach((c: any) => {
-        const course = c.courseName || "Unknown";
-        courseMap.set(course, (courseMap.get(course) || 0) + 1);
-      });
-      const byCourse = Array.from(courseMap.entries())
-        .map(([courseName, count]) => ({ courseName, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-
-      // Group by template
-      const templateMap = new Map<string, number>();
-      certificates.forEach((c: any) => {
-        const template = c.templateId?.templateName || "Default Template";
-        templateMap.set(template, (templateMap.get(template) || 0) + 1);
-      });
-      const byTemplate = Array.from(templateMap.entries())
-        .map(([templateName, count]) => ({ templateName, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-
-      // Group by team member
-      const teamMap = new Map<string, number>();
-      certificates.forEach((c: any) => {
-        const name = c.issuedBy?.name || "Unknown";
-        teamMap.set(name, (teamMap.get(name) || 0) + 1);
-      });
-      const byTeamMember = Array.from(teamMap.entries())
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-
-      // Monthly trends (last 6 months)
-      const monthlyTrends: { month: string; count: number }[] = [];
-      for (let i = 5; i >= 0; i--) {
-        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-        const monthName = monthStart.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-        const count = certificates.filter((c: any) => {
-          const createdAt = new Date(c.createdAt);
-          return createdAt >= monthStart && createdAt <= monthEnd;
-        }).length;
-        monthlyTrends.push({ month: monthName, count });
-      }
-
-      setAnalyticsData({
-        totalCertificates,
-        activeCertificates,
-        pendingCertificates,
-        expiredCertificates,
-        revokedCertificates,
-        issuedToday,
-        issuedThisMonth,
-        byCourse,
-        byTemplate,
-        byTeamMember,
-        monthlyTrends,
-      });
     } catch (error: any) {
       console.error("Failed to load analytics:", error);
       toast({

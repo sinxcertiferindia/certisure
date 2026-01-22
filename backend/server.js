@@ -6,7 +6,7 @@ require("dotenv").config();
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/org", require("./routes/organizationRoutes"));
 app.use("/api/templates", require("./routes/templateRoutes"));
-app.use("/api/certificate", require("./routes/certificateRoutes"));
+app.use("/api/certificates", require("./routes/certificateRoutes"));
 app.use("/api/team", require("./routes/teamRoutes"));
 // Master Dashboard Routes
 app.use("/api/users", require("./routes/userRoutes"));

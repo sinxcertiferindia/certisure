@@ -845,9 +845,76 @@ const downloadWithoutId = async (req, res) => {
   }
 };
 
+/**
+ * Get analytics data for the organization
+ * Gated by checkPlanPermission('analytics')
+ */
+const getAnalyticsData = async (req, res) => {
+  try {
+    const orgId = new mongoose.Types.ObjectId(req.user.orgId);
+
+    // Fetch certificates for this org
+    const certificates = await Certificate.find({ orgId }).populate("issuedBy", "name");
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const analytics = {
+      totalCertificates: certificates.length,
+      activeCertificates: certificates.filter(c => c.status === "ACTIVE" || c.status === "active").length,
+      pendingCertificates: certificates.filter(c => c.status === "PENDING" || c.status === "pending").length,
+      expiredCertificates: certificates.filter(c => c.expiryDate && new Date(c.expiryDate) < now).length,
+      revokedCertificates: certificates.filter(c => c.status === "REVOKED" || c.status === "revoked").length,
+      issuedToday: certificates.filter(c => new Date(c.createdAt) >= startOfToday).length,
+      issuedThisMonth: certificates.filter(c => new Date(c.createdAt) >= startOfMonth).length,
+      byCourse: [],
+      byTemplate: [],
+      byTeamMember: [],
+      monthlyTrends: []
+    };
+
+    // Advanced groupings
+    const courseMap = {};
+    const teamMap = {};
+
+    certificates.forEach(c => {
+      courseMap[c.courseName] = (courseMap[c.courseName] || 0) + 1;
+      const teamName = c.issuedBy?.name || "Unknown";
+      teamMap[teamName] = (teamMap[teamName] || 0) + 1;
+    });
+
+    analytics.byCourse = Object.entries(courseMap)
+      .map(([courseName, count]) => ({ courseName, count }))
+      .sort((a, b) => b.count - a.count).slice(0, 5);
+
+    analytics.byTeamMember = Object.entries(teamMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count).slice(0, 5);
+
+    // Monthly trends (6 months)
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+      const monthName = monthStart.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+      const count = certificates.filter(c => {
+        const createdAt = new Date(c.createdAt);
+        return createdAt >= monthStart && createdAt <= monthEnd;
+      }).length;
+      analytics.monthlyTrends.push({ month: monthName, count });
+    }
+
+    res.json({ success: true, data: analytics });
+  } catch (error) {
+    console.error("Get analytics error:", error);
+    res.status(500).json({ success: false, message: "Failed to generate analytics" });
+  }
+};
+
 module.exports = {
   issueCertificate,
   getCertificates,
+  getAnalyticsData,
   bulkIssueCertificates,
   getAllCertificates,
   deleteCertificate,

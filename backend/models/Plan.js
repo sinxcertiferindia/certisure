@@ -58,6 +58,7 @@ const planSchema = new mongoose.Schema({
             signatureUpload: { type: Boolean, default: true },
             sizeControl: { type: Boolean, default: false },
             orientationControl: { type: Boolean, default: false },
+            qrCode: { type: Boolean, default: false },
         }
     },
     isActive: {

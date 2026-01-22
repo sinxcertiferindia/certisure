@@ -205,7 +205,7 @@ Jane Smith,jane.smith@example.com,Data Science Fundamentals,TechCorp Academy,202
         }));
 
         // Call bulk issue API
-        const response = await api.post("/certificate/bulk", { certificates });
+        const response = await api.post("/certificates/bulk", { certificates });
         const result = response.data.data;
 
         const total = result.count;
@@ -393,8 +393,8 @@ Jane Smith,jane.smith@example.com,Data Science Fundamentals,TechCorp Academy,202
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${uploadedFile
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-primary/50"
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-primary/50"
                 }`}
             >
               <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />

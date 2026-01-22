@@ -33,6 +33,7 @@ const getPlans = async (req, res) => {
                             textEditing: false, fontStyle: false, fontSize: false, fontColor: false,
                             shapes: false, backgroundImage: false, backgroundColor: false,
                             logoUpload: true, signatureUpload: true, sizeControl: false, orientationControl: false,
+                            qrCode: false,
                         }
                     }
                 },
@@ -59,6 +60,7 @@ const getPlans = async (req, res) => {
                             textEditing: true, fontStyle: true, fontSize: true, fontColor: true,
                             shapes: true, backgroundImage: true, backgroundColor: true,
                             logoUpload: true, signatureUpload: true, sizeControl: true, orientationControl: true,
+                            qrCode: true,
                         }
                     }
                 },
@@ -85,6 +87,7 @@ const getPlans = async (req, res) => {
                             textEditing: true, fontStyle: true, fontSize: true, fontColor: true,
                             shapes: true, backgroundImage: true, backgroundColor: true,
                             logoUpload: true, signatureUpload: true, sizeControl: true, orientationControl: true,
+                            qrCode: true,
                         }
                     }
                 }
@@ -107,7 +110,7 @@ const getPlans = async (req, res) => {
 const updatePlan = async (req, res) => {
     try {
         const { planName } = req.params;
-        const updateData = req.body;
+        const { _id, __v, ...updateData } = req.body;
 
         const updatedPlan = await Plan.findOneAndUpdate(
             { planName },

@@ -109,53 +109,7 @@ const CertificateBuilder = () => {
           const planName = org.plan?.planName || org.subscriptionPlan || "FREE";
           setSubscriptionPlan(planName);
 
-          const fetchedPermissions = org.plan?.permissions || {};
-
-          // Fallback: Force enable PRO features if plan indicates PRO/ENTERPRISE
-          const isPro = ["PRO", "ENTERPRISE", "PRO_PLAN", "ENTERPRISE_PLAN"].includes(planName) ||
-            ["PRO", "ENTERPRISE"].includes(org.subscriptionPlan || "");
-
-          if (isPro) {
-            const allTools = {
-              textEditing: true,
-              logoUpload: true,
-              signatureUpload: true,
-              backgroundImage: true,
-              backgroundColor: true,
-              shapes: true,
-              icons: true,
-              qrCode: true,
-              layers: true,
-              advancedColors: true,
-              typography: true,
-              sizeControl: true,
-              fontStyle: true
-            };
-
-            if (!fetchedPermissions.editorTools) {
-              fetchedPermissions.editorTools = allTools;
-            } else {
-              // Ensure ALL critical tools are unlocked by merging
-              fetchedPermissions.editorTools = {
-                ...fetchedPermissions.editorTools,
-                ...allTools
-              };
-            }
-            fetchedPermissions.customTemplates = true;
-          } else {
-            // FREE Plan - Ensure Logo/Signature are allowed
-            if (!fetchedPermissions.editorTools) {
-              fetchedPermissions.editorTools = {};
-            }
-            // Explicitly allow allowed tools
-            fetchedPermissions.editorTools.logoUpload = true;
-            fetchedPermissions.editorTools.signatureUpload = true;
-
-            // Ensure reduced tools are disabled (just in case)
-            fetchedPermissions.editorTools.textEditing = false;
-            fetchedPermissions.editorTools.shapes = false;
-            fetchedPermissions.editorTools.backgroundColor = false;
-          }
+          const fetchedPermissions = org.plan?.permissions || { editorTools: {} };
 
           setPermissions(fetchedPermissions);
 
@@ -988,7 +942,10 @@ const CertificateBuilder = () => {
                           textAlign: (element.align as any) || "left",
                           textDecoration: element.textDecoration || "none",
                           padding: `${element.padding || 0}px`,
-                          whiteSpace: "nowrap",
+                          whiteSpace: "pre-wrap",
+                          width: element.width ? `${element.width}px` : "auto",
+                          height: element.height ? `${element.height}px` : "auto",
+                          wordBreak: "break-word",
                         }}
                       >
                         {element.content || "Text"}
@@ -1407,18 +1364,18 @@ const CertificateBuilder = () => {
                       <AccordionItem value="position">
                         <AccordionTrigger className="text-sm font-semibold text-primary">Dimensions & Position</AccordionTrigger>
                         <AccordionContent className="space-y-4 pt-2">
-                          {(selectedElementData.type === "logo" || selectedElementData.type === "signature") && (
+                          {(selectedElementData.type === "logo" || selectedElementData.type === "signature" || selectedElementData.type === "text") && (
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <Label className="mb-1.5 block text-xs">Width (px)</Label>
-                                <Input type="number" value={selectedElementData.width || 100}
-                                  onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, width: parseInt(e.target.value) || 100 } : el))}
+                                <Label className="mb-1.5 block text-xs">Width (px) {selectedElementData.type === "text" && <span className="text-muted-foreground font-normal">(0=Auto)</span>}</Label>
+                                <Input type="number" value={selectedElementData.width || (selectedElementData.type === "text" ? 0 : 100)}
+                                  onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, width: parseInt(e.target.value) || 0 } : el))}
                                 />
                               </div>
                               <div>
-                                <Label className="mb-1.5 block text-xs">Height (px)</Label>
-                                <Input type="number" value={selectedElementData.height || 50}
-                                  onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, height: parseInt(e.target.value) || 50 } : el))}
+                                <Label className="mb-1.5 block text-xs">Height (px) {selectedElementData.type === "text" && <span className="text-muted-foreground font-normal">(0=Auto)</span>}</Label>
+                                <Input type="number" value={selectedElementData.height || (selectedElementData.type === "text" ? 0 : 50)}
+                                  onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, height: parseInt(e.target.value) || 0 } : el))}
                                 />
                               </div>
                             </div>
