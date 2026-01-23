@@ -21,7 +21,18 @@ import {
   Clock,
   XCircle,
   FileText,
+  Trash2,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import jsPDF from "jspdf";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 
@@ -60,6 +71,8 @@ const Certificates = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [certificateToDelete, setCertificateToDelete] = useState<Certificate | null>(null);
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>("FREE");
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -277,6 +290,37 @@ const Certificates = () => {
     navigate(`/verify/${cert.id}`);
   };
 
+  const handleDeleteClick = (cert: Certificate) => {
+    setCertificateToDelete(cert);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!certificateToDelete) return;
+
+    try {
+      const response = await api.delete(`/certificates/${certificateToDelete.id}`);
+
+      if (response.data.success) {
+        setCertificates(prev => prev.filter(c => c.id !== certificateToDelete.id));
+        toast({
+          title: "Certificate Deleted",
+          description: "The certificate has been successfully deleted.",
+        });
+      }
+    } catch (error) {
+      console.error("Failed to delete certificate:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete certificate. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setShowDeleteDialog(false);
+      setCertificateToDelete(null);
+    }
+  };
+
   const handleExport = () => {
     // Convert filtered certificates to CSV
     const headers = ["Certificate ID", "Recipient", "Recipient Email", "Course", "Course Code", "Organization", "Date", "Status"];
@@ -474,6 +518,13 @@ const Certificates = () => {
                                   <FileCheck className="w-4 h-4 mr-2" />
                                   Verify
                                 </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteClick(cert)}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </td>
@@ -544,6 +595,25 @@ const Certificates = () => {
           )}
         </DialogContent>
       </Dialog>
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the certificate
+              for <strong>{certificateToDelete?.recipient}</strong> ({certificateToDelete?.id})
+              from our servers.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -33,6 +33,11 @@ import {
   Lock as LockIcon,
   Layout as LayoutIcon,
   QrCode as QrCodeIcon,
+  Triangle,
+  Star,
+  Pentagon,
+  Hexagon,
+  ArrowRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
@@ -53,7 +58,7 @@ import {
 interface CanvasElement {
   id: string;
   type: "text" | "logo" | "signature" | "shape" | "qrcode";
-  shapeType?: "rectangle" | "circle" | "line";
+  shapeType?: "rectangle" | "circle" | "line" | "triangle" | "star" | "pentagon" | "hexagon" | "arrow";
   content?: string;
   x: number;
   y: number;
@@ -179,7 +184,7 @@ const CertificateBuilder = () => {
     }
   }, [templateId, isLoadingPlan, toast]);
 
-  const compressImage = (base64Str: string, maxWidth: number = 800, maxHeight: number = 800): Promise<string> => {
+  const compressImage = (base64Str: string, maxWidth: number = 800, maxHeight: number = 800, mimeType: string = "image/jpeg"): Promise<string> => {
     return new Promise((resolve) => {
       const img = new window.Image();
       img.src = base64Str;
@@ -204,7 +209,7 @@ const CertificateBuilder = () => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7)); // 0.7 quality
+        resolve(canvas.toDataURL(mimeType, mimeType === "image/jpeg" ? 0.7 : undefined));
       };
     });
   };
@@ -237,7 +242,7 @@ const CertificateBuilder = () => {
       if (file) {
         const reader = new FileReader();
         reader.onload = async (event) => {
-          const compressed = await compressImage(event.target?.result as string);
+          const compressed = await compressImage(event.target?.result as string, 800, 800, "image/png");
           const newElement: CanvasElement = {
             id: Date.now().toString(),
             type: "logo",
@@ -265,7 +270,7 @@ const CertificateBuilder = () => {
       if (file) {
         const reader = new FileReader();
         reader.onload = async (event) => {
-          const compressed = await compressImage(event.target?.result as string);
+          const compressed = await compressImage(event.target?.result as string, 800, 800, "image/png");
           const newElement: CanvasElement = {
             id: Date.now().toString(),
             type: "signature",
@@ -284,7 +289,7 @@ const CertificateBuilder = () => {
     input.click();
   };
 
-  const handleAddShape = (shapeType: "rectangle" | "circle" | "line") => {
+  const handleAddShape = (shapeType: "rectangle" | "circle" | "line" | "triangle" | "star" | "pentagon" | "hexagon" | "arrow") => {
     const newElement: CanvasElement = {
       id: Date.now().toString(),
       type: "shape",
@@ -714,7 +719,7 @@ const CertificateBuilder = () => {
                 <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground flex items-center">
                   <MaximizeIcon className="w-4 h-4 mr-2" /> Shapes
                 </h3>
-                <div className="grid grid-cols-3 gap-2 relative">
+                <div className="grid grid-cols-4 gap-2 relative">
                   <Button variant="outline" size="icon" onClick={() => handleAddShape("rectangle")} disabled={!permissions.editorTools?.shapes}>
                     <div className="w-5 h-4 border-2 border-primary rounded-sm" />
                   </Button>
@@ -724,8 +729,23 @@ const CertificateBuilder = () => {
                   <Button variant="outline" size="icon" onClick={() => handleAddShape("line")} disabled={!permissions.editorTools?.shapes}>
                     <div className="w-6 h-0.5 bg-primary" />
                   </Button>
+                  <Button variant="outline" size="icon" onClick={() => handleAddShape("triangle")} disabled={!permissions.editorTools?.shapes}>
+                    <Triangle className="w-5 h-5 text-primary" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={() => handleAddShape("star")} disabled={!permissions.editorTools?.shapes}>
+                    <Star className="w-5 h-5 text-primary" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={() => handleAddShape("pentagon")} disabled={!permissions.editorTools?.shapes}>
+                    <Pentagon className="w-5 h-5 text-primary" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={() => handleAddShape("hexagon")} disabled={!permissions.editorTools?.shapes}>
+                    <Hexagon className="w-5 h-5 text-primary" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={() => handleAddShape("arrow")} disabled={!permissions.editorTools?.shapes}>
+                    <ArrowRight className="w-5 h-5 text-primary" />
+                  </Button>
                   {!permissions.editorTools?.shapes && (
-                    <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] flex flex-col items-center justify-center rounded-md cursor-not-allowed group">
+                    <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] flex flex-col items-center justify-center rounded-md cursor-not-allowed group z-10">
                       <LockIcon className="w-4 h-4 text-muted-foreground mb-1" />
                       <span className="text-[10px] text-muted-foreground font-bold opacity-0 group-hover:opacity-100 transition-opacity">PRO ONLY</span>
                     </div>
@@ -819,7 +839,7 @@ const CertificateBuilder = () => {
                         if (file) {
                           const reader = new FileReader();
                           reader.onload = async (ev) => {
-                            const compressed = await compressImage(ev.target?.result as string, 1200, 1200);
+                            const compressed = await compressImage(ev.target?.result as string, 1200, 1200, "image/jpeg");
                             setCanvasBgImage(compressed);
                           };
                           reader.readAsDataURL(file);
@@ -997,13 +1017,72 @@ const CertificateBuilder = () => {
                         style={{
                           width: `${element.width || 100}px`,
                           height: `${element.height || 100}px`,
-                          backgroundColor: element.fillColor || "transparent",
-                          border: element.shapeType === "line" ? "none" : `${element.strokeWidth || 1}px solid ${element.color || "#000"}`,
-                          borderTop: element.shapeType === "line" ? `${element.strokeWidth || 1}px solid ${element.color || "#000"}` : undefined,
-                          borderRadius: element.shapeType === "circle" ? "50%" : `${element.borderRadius || 0}px`,
                           opacity: element.opacity || 1,
                         }}
-                      />
+                      >
+                        {element.shapeType === "rectangle" && (
+                          <div style={{
+                            width: "100%", height: "100%",
+                            backgroundColor: element.fillColor || "transparent",
+                            border: `${element.strokeWidth || 1}px solid ${element.color || "#000"}`,
+                            borderRadius: `${element.borderRadius || 0}px`
+                          }} />
+                        )}
+                        {element.shapeType === "circle" && (
+                          <div style={{
+                            width: "100%", height: "100%",
+                            backgroundColor: element.fillColor || "transparent",
+                            border: `${element.strokeWidth || 1}px solid ${element.color || "#000"}`,
+                            borderRadius: "50%"
+                          }} />
+                        )}
+                        {element.shapeType === "line" && (
+                          <div style={{
+                            width: "100%", height: `${element.strokeWidth || 2}px`,
+                            backgroundColor: element.color || "#000",
+                          }} />
+                        )}
+                        {element.shapeType === "triangle" && (
+                          <Triangle
+                            className="w-full h-full"
+                            color={element.color}
+                            fill={element.fillColor !== 'transparent' ? element.fillColor : 'none'}
+                            strokeWidth={element.strokeWidth}
+                          />
+                        )}
+                        {element.shapeType === "star" && (
+                          <Star
+                            className="w-full h-full"
+                            color={element.color}
+                            fill={element.fillColor !== 'transparent' ? element.fillColor : 'none'}
+                            strokeWidth={element.strokeWidth}
+                          />
+                        )}
+                        {element.shapeType === "pentagon" && (
+                          <Pentagon
+                            className="w-full h-full"
+                            color={element.color}
+                            fill={element.fillColor !== 'transparent' ? element.fillColor : 'none'}
+                            strokeWidth={element.strokeWidth}
+                          />
+                        )}
+                        {element.shapeType === "hexagon" && (
+                          <Hexagon
+                            className="w-full h-full"
+                            color={element.color}
+                            fill={element.fillColor !== 'transparent' ? element.fillColor : 'none'}
+                            strokeWidth={element.strokeWidth}
+                          />
+                        )}
+                        {element.shapeType === "arrow" && (
+                          <ArrowRight
+                            className="w-full h-full"
+                            color={element.color}
+
+                            strokeWidth={element.strokeWidth}
+                          />
+                        )}
+                      </div>
                     )}
 
                     {/* Context controls just for delete on hover */}
@@ -1364,22 +1443,20 @@ const CertificateBuilder = () => {
                       <AccordionItem value="position">
                         <AccordionTrigger className="text-sm font-semibold text-primary">Dimensions & Position</AccordionTrigger>
                         <AccordionContent className="space-y-4 pt-2">
-                          {(selectedElementData.type === "logo" || selectedElementData.type === "signature" || selectedElementData.type === "text") && (
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <Label className="mb-1.5 block text-xs">Width (px) {selectedElementData.type === "text" && <span className="text-muted-foreground font-normal">(0=Auto)</span>}</Label>
-                                <Input type="number" value={selectedElementData.width || (selectedElementData.type === "text" ? 0 : 100)}
-                                  onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, width: parseInt(e.target.value) || 0 } : el))}
-                                />
-                              </div>
-                              <div>
-                                <Label className="mb-1.5 block text-xs">Height (px) {selectedElementData.type === "text" && <span className="text-muted-foreground font-normal">(0=Auto)</span>}</Label>
-                                <Input type="number" value={selectedElementData.height || (selectedElementData.type === "text" ? 0 : 50)}
-                                  onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, height: parseInt(e.target.value) || 0 } : el))}
-                                />
-                              </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label className="mb-1.5 block text-xs">Width (px) {selectedElementData.type === "text" && <span className="text-muted-foreground font-normal">(0=Auto)</span>}</Label>
+                              <Input type="number" value={selectedElementData.width || (selectedElementData.type === "text" ? 0 : 100)}
+                                onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, width: parseInt(e.target.value) || 0 } : el))}
+                              />
                             </div>
-                          )}
+                            <div>
+                              <Label className="mb-1.5 block text-xs">Height (px) {selectedElementData.type === "text" && <span className="text-muted-foreground font-normal">(0=Auto)</span>}</Label>
+                              <Input type="number" value={selectedElementData.height || (selectedElementData.type === "text" ? 0 : 50)}
+                                onChange={(e) => setElements(elements.map(el => el.id === selectedElement ? { ...el, height: parseInt(e.target.value) || 0 } : el))}
+                              />
+                            </div>
+                          </div>
 
                           <div className="grid grid-cols-2 gap-4">
                             <div>

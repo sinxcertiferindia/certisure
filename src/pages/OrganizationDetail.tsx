@@ -106,6 +106,32 @@ const OrganizationDetail = () => {
     totalIssued: stats.certificatesCount,
   };
 
+  const handleRestartSubscription = async () => {
+    if (!window.confirm("This will restart the subscription starting TODAY for 1 month. Current cycle will be overwritten. Continue?")) return;
+
+    try {
+      const response = await api.post(`/org/${id}/restart`);
+      if (response.data.success) {
+        setOrganization(response.data.data);
+        // Refresh full details to sync everything if needed
+      }
+    } catch (error) {
+      console.error("Failed to restart subscription:", error);
+    }
+  };
+
+  const handleStopSubscription = async () => {
+    if (!window.confirm("Are you sure you want to stop this subscription?")) return;
+    try {
+      const response = await api.post(`/org/${id}/deactivate`);
+      if (response.data.success) {
+        setOrganization(response.data.data);
+      }
+    } catch (error) {
+      console.error("Failed to stop subscription:", error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -256,11 +282,11 @@ const OrganizationDetail = () => {
                 </div>
 
                 <div className="flex gap-4 pt-4 border-t">
-                  <Button variant="outline" className="flex-1">
+                  <Button variant="outline" className="flex-1" onClick={handleRestartSubscription}>
                     <Play className="w-4 h-4 mr-2" />
-                    Start Subscription
+                    Restart / Renew (1 Month)
                   </Button>
-                  <Button variant="outline" className="flex-1">
+                  <Button variant="outline" className="flex-1" onClick={handleStopSubscription}>
                     <Pause className="w-4 h-4 mr-2" />
                     Stop Subscription
                   </Button>

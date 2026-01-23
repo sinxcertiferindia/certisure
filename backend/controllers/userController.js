@@ -12,7 +12,7 @@ const getCurrentUser = async (req, res) => {
             .select("-password")
             .populate({
                 path: "orgId",
-                select: "name email subscriptionPlan subscriptionStatus accountStatus logo planId certificatePrefixes defaultCertificatePrefix",
+                select: "name email subscriptionPlan subscriptionStatus accountStatus logo planId certificatePrefixes defaultCertificatePrefix monthlyCertificateLimit certificatesIssuedThisMonth subscriptionEndDate",
                 populate: {
                     path: "planId",
                     select: "planName monthlyPrice permissions features"
@@ -48,7 +48,10 @@ const getCurrentUser = async (req, res) => {
                     logo: user.orgId.logo,
                     certificatePrefixes: user.orgId.certificatePrefixes,
                     defaultCertificatePrefix: user.orgId.defaultCertificatePrefix,
-                    plan: user.orgId.planId
+                    plan: user.orgId.planId,
+                    monthlyCertificateLimit: user.orgId.monthlyCertificateLimit,
+                    certificatesIssuedThisMonth: user.orgId.certificatesIssuedThisMonth,
+                    subscriptionEndDate: user.orgId.subscriptionEndDate
                 } : null
             }
         });

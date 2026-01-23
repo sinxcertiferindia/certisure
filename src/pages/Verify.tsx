@@ -104,6 +104,22 @@ const Verify = () => {
   const [notFound, setNotFound] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [previewScale, setPreviewScale] = useState(0.75);
+
+  // Responsive preview scaling
+  useEffect(() => {
+    const handleResize = () => {
+      // Design base width is 1000px for verification view
+      // We want to fit it into the container width
+      const containerWidth = Math.min(window.innerWidth - 64, 800); // 64px padding
+      const scale = containerWidth < 800 ? containerWidth / 1000 : 0.75;
+      setPreviewScale(scale);
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Initial calculation
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Download Logic States
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
@@ -677,9 +693,10 @@ const Verify = () => {
                               overflow: 'hidden',
                               boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
                               // Scaling logic for display
-                              transform: `scale(${typeof window !== 'undefined' && window.innerWidth < 1024 ? (window.innerWidth - 80) / 1000 : 0.75})`,
+                              transform: `scale(${previewScale})`,
                               transformOrigin: 'top center',
                               margin: '0 auto',
+                              marginBottom: `-${(parseInt(verificationResult.renderData?.orientation === 'portrait' ? '1414' : '707') * (1 - previewScale))}px`
                             }}
                             className="bg-white border relative"
                           >
@@ -756,8 +773,8 @@ const Verify = () => {
                               </div>
                             )}
                           </div>
-                          {/* Placeholder for spacer because of transform scaling */}
-                          <div style={{ height: (window.innerWidth < 1024 ? 400 : 500) }}></div>
+                          {/* Placeholder removed as we use negative margin now */}
+                          <div style={{ height: '20px' }}></div>
                         </div>
                       </div>
 

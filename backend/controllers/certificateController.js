@@ -106,20 +106,34 @@ const issueCertificate = async (req, res) => {
       ...organization.planId?.permissions?.features
     };
 
-    // 1. Check Monthly Issuance Limit
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const certificateCount = await Certificate.countDocuments({
-      orgId: orgId,
-      createdAt: { $gte: startOfMonth }
-    });
-
-    if (planFeatures.maxCertificatesPerMonth && certificateCount >= planFeatures.maxCertificatesPerMonth) {
+    // 1. Subscription Expiry Check
+    if (organization.subscriptionEndDate && new Date() > new Date(organization.subscriptionEndDate)) {
       return res.status(403).json({
         success: false,
-        message: `Monthly issuance limit reached (${planFeatures.maxCertificatesPerMonth}). Please upgrade your plan.`
+        message: "Your subscription has expired. Please renew to continue issuing certificates."
+      });
+    }
+
+    // 2. Monthly Limit & Reset Logic
+    const now = new Date();
+    const lastReset = organization.lastResetDate ? new Date(organization.lastResetDate) : new Date(0);
+
+    // Check if month changed
+    if (now.getMonth() !== lastReset.getMonth() || now.getFullYear() !== lastReset.getFullYear()) {
+      // RESET
+      organization.certificatesIssuedThisMonth = 0;
+      organization.lastResetDate = now;
+      await organization.save();
+    }
+
+    // Check Limit
+    const monthlyLimit = organization.monthlyCertificateLimit || (isPro ? 500 : 50); // Fallback defaults
+
+    // Use strict check from Organization model
+    if (organization.certificatesIssuedThisMonth >= monthlyLimit) {
+      return res.status(403).json({
+        success: false,
+        message: `Your monthly certificate limit (${monthlyLimit}) has been reached. Upgrade your plan to increase limits.`
       });
     }
 
@@ -368,6 +382,11 @@ const issueCertificate = async (req, res) => {
         courseName,
         certificateId: certificate.certificateId,
       },
+    });
+
+    // 4. Increment Usage Count
+    await Organization.findByIdAndUpdate(orgId, {
+      $inc: { certificatesIssuedThisMonth: 1 }
     });
 
     res.status(201).json({
@@ -624,7 +643,7 @@ const getAllCertificates = async (req, res) => {
 };
 
 /**
- * Delete a certificate (Master Dashboard)
+ * Delete a certificate (Master Dashboard or Organization Dashboard)
  */
 const deleteCertificate = async (req, res) => {
   try {
@@ -636,13 +655,28 @@ const deleteCertificate = async (req, res) => {
       return res.status(404).json({ success: false, message: "Certificate not found" });
     }
 
+    // Permission Check
+    const userRole = req.user.role;
+    const userOrgId = req.user.orgId; // Assuming string or ObjectId from token
+
+    // If not super admin, check ownership
+    if (userRole !== "SUPER_ADMIN") {
+      // Ensure the certificate belongs to the user's organization
+      if (!certificate.orgId || certificate.orgId.toString() !== userOrgId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized: You can only delete certificates issued by your organization."
+        });
+      }
+    }
+
     await Certificate.findByIdAndDelete(certificateId);
 
     // Log audit
     await AuditLog.create({
       orgId: certificate.orgId,
       userId: req.user?.userId || null,
-      action: "CERTIFICATE_DELETED_BY_MASTER",
+      action: userRole === "SUPER_ADMIN" ? "CERTIFICATE_DELETED_BY_MASTER" : "CERTIFICATE_DELETED",
       entityType: "CERTIFICATE",
       entityId: certificateId,
       details: { certificateId: certificate.certificateId },

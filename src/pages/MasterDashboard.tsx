@@ -53,6 +53,40 @@ import {
 import api from "@/services/api";
 
 // Sidebar links removed - logic moved to top nav
+
+const MasterNotificationBanner = ({ orgs }: { orgs: any[] }) => {
+  const expiringSoon = orgs.filter(org => {
+    if (!org.subscriptionEndDate) return false;
+    const days = Math.ceil((new Date(org.subscriptionEndDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+    return days <= 7 && days >= 0;
+  });
+
+  const limitReached = orgs.filter(org => {
+    const limit = org.monthlyCertificateLimit || 50; // default
+    const used = org.certificatesIssuedThisMonth || 0;
+    return used >= limit;
+  });
+
+  if (expiringSoon.length === 0 && limitReached.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2 mb-6">
+      {expiringSoon.length > 0 && (
+        <div className="bg-warning/10 border border-warning/20 text-warning-foreground px-4 py-3 rounded-md flex items-center gap-2">
+          <Clock className="w-5 h-5" />
+          <span className="font-medium">{expiringSoon.length} Organization(s) subscription expiring soon.</span>
+        </div>
+      )}
+      {limitReached.length > 0 && (
+        <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md flex items-center gap-2">
+          <AlertCircle className="w-5 h-5" />
+          <span className="font-medium">{limitReached.length} Organization(s) reached monthly certificate limit.</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const MasterDashboard = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -180,6 +214,20 @@ const MasterDashboard = () => {
     }
 
     newSettings[planIdx] = currentPlan;
+    setPlanSettings(newSettings);
+    setHasUnsavedPlanChanges(true);
+  };
+
+  const handleUpdatePlanField = (plan: string, field: string, value: any) => {
+    const planIdx = planSettings.findIndex(p => p.planName === plan);
+    if (planIdx === -1) return;
+
+    const newSettings = [...planSettings];
+    newSettings[planIdx] = {
+      ...newSettings[planIdx],
+      [field]: value
+    };
+
     setPlanSettings(newSettings);
     setHasUnsavedPlanChanges(true);
   };
@@ -542,6 +590,8 @@ const MasterDashboard = () => {
         <div className="p-6 space-y-6">
           {selectedTab === 'orgs' ? (
             <>
+              <MasterNotificationBanner orgs={organizations} />
+
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <motion.div
@@ -752,6 +802,26 @@ const MasterDashboard = () => {
                                   {org.paymentStatus || "PENDING"}
                                 </Badge>
                               </div>
+
+                              {/* NEW: Usage & Expiry Stats */}
+                              <div className="pt-2 border-t border-dashed space-y-2">
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-muted-foreground">Certificates</span>
+                                  <span className={(org.certificatesIssuedThisMonth || 0) >= (org.monthlyCertificateLimit || 50) ? "text-destructive font-bold" : ""}>
+                                    {org.certificatesIssuedThisMonth || 0} / {org.monthlyCertificateLimit || 50}
+                                  </span>
+                                </div>
+                                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-primary transition-all"
+                                    style={{ width: `${Math.min(((org.certificatesIssuedThisMonth || 0) / (org.monthlyCertificateLimit || 50)) * 100, 100)}%` }}
+                                  />
+                                </div>
+                                <div className="flex justify-between text-xs mt-1">
+                                  <span className="text-muted-foreground">Expires</span>
+                                  <span>{org.subscriptionEndDate ? new Date(org.subscriptionEndDate).toLocaleDateString() : 'N/A'}</span>
+                                </div>
+                              </div>
                               <div className="pt-2 border-t space-y-2">
                                 {org.accountStatus === "PENDING" && (
                                   <Button
@@ -841,6 +911,27 @@ const MasterDashboard = () => {
                         </tr>
                       </thead>
                       <tbody>
+                        <tr className="border-b bg-accent/5 hover:bg-accent/10">
+                          <td className="p-3 font-semibold text-foreground flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4 text-primary" />
+                            Monthly Certificate Limit
+                            <span className="text-[10px] text-muted-foreground font-normal">(Auto-resets monthly)</span>
+                          </td>
+                          {['FREE', 'PRO', 'ENTERPRISE'].map((plan) => {
+                            const planSetting = planSettings.find(p => p.planName === plan);
+                            const value = planSetting?.maxCertificatesPerMonth || 0;
+                            return (
+                              <td key={`limit-${plan}`} className="p-2">
+                                <Input
+                                  type="number"
+                                  className="h-8 w-24 mx-auto text-center font-bold"
+                                  value={value}
+                                  onChange={(e) => handleUpdatePlanField(plan, 'maxCertificatesPerMonth', parseInt(e.target.value) || 0)}
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
                         {[
                           { key: 'customTemplates', label: 'Custom Certificate Templates' },
                           { key: 'bulkIssuance', label: 'Bulk Certificate Issuance' },

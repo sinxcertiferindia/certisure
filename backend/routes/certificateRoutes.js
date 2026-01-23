@@ -24,7 +24,7 @@ router.post("/bulk", auth, checkPlanPermission('bulkIssuance'), bulkIssueCertifi
 
 // Master Routes (Authenticated users)
 router.get("/all", auth, authorize(["SUPER_ADMIN"]), getAllCertificates);
-router.delete("/:certificateId", auth, authorize(["SUPER_ADMIN"]), deleteCertificate);
+router.delete("/:certificateId", auth, deleteCertificate);
 
 // Public Routes
 const { verifyCertificate, downloadCertificate, downloadWithoutId } = require("../controllers/certificateController");

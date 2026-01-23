@@ -23,6 +23,7 @@ import {
   Settings,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
 import html2canvas from "html2canvas";
@@ -74,6 +75,25 @@ const IssueCertificate = () => {
   const [isLoadingOrg, setIsLoadingOrg] = useState(true);
   const [prefixes, setPrefixes] = useState<string[]>([]);
   const [selectedPrefix, setSelectedPrefix] = useState<string>("");
+  const [isLimitReached, setIsLimitReached] = useState(false);
+  const [isSubscriptionExpired, setIsSubscriptionExpired] = useState(false);
+  const [previewScale, setPreviewScale] = useState(1);
+
+  // Responsive preview scaling
+  useEffect(() => {
+    const handleResize = () => {
+      // Calculate scale based on container width (mobile adjustments)
+      // Design base width is 800px
+      const padding = 48; // App padding
+      const availableWidth = Math.min(window.innerWidth - padding, 800);
+      const scale = availableWidth < 800 ? availableWidth / 800 : 1;
+      setPreviewScale(scale);
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Initial calculation
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Load organization profile and subscription plan
   useEffect(() => {
@@ -89,6 +109,17 @@ const IssueCertificate = () => {
         const orgPrefixes = org.certificatePrefixes || [];
         setPrefixes(orgPrefixes);
         setSelectedPrefix(org.defaultCertificatePrefix || (orgPrefixes.length > 0 ? orgPrefixes[0] : ""));
+
+        // LIMIT & EXPIRY CHECK
+        const limit = org.monthlyCertificateLimit || 50;
+        const used = org.certificatesIssuedThisMonth || 0;
+        if (used >= limit) {
+          setIsLimitReached(true);
+        }
+
+        if (org.subscriptionEndDate && new Date() > new Date(org.subscriptionEndDate)) {
+          setIsSubscriptionExpired(true);
+        }
 
         setIsLoadingOrg(false);
       } catch (error) {
@@ -299,8 +330,10 @@ const IssueCertificate = () => {
       element.style.transform = originalTransform;
 
       const imgData = canvas.toDataURL('image/png', 1.0);
+      const orientation = selectedTemplate?.orientation === 'portrait' ? 'p' : 'l';
+
       const pdf = new jsPDF({
-        orientation: canvas.width > canvas.height ? 'l' : 'p',
+        orientation: orientation,
         unit: 'px',
         format: [canvas.width, canvas.height]
       });
@@ -692,21 +725,42 @@ const IssueCertificate = () => {
                       >
                         Cancel
                       </Button>
-                      <Button
-                        type="submit"
-                        variant="premium"
-                        className="flex-1"
-                        disabled={isSubmitting}
-                      >
-                        {isSubmitting ? (
-                          <span className="flex items-center gap-2">
-                            <span className="animate-spin">⏳</span>
-                            Creating Certificate...
-                          </span>
-                        ) : (
-                          "Issue Certificate"
-                        )}
-                      </Button>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex-1">
+                              <Button
+                                type="submit"
+                                variant="premium"
+                                className="w-full"
+                                disabled={isSubmitting || isLimitReached || isSubscriptionExpired}
+                              >
+                                {isSubmitting ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className="animate-spin">⏳</span>
+                                    Creating Certificate...
+                                  </span>
+                                ) : isLimitReached ? (
+                                  "Monthly Limit Reached"
+                                ) : isSubscriptionExpired ? (
+                                  "Subscription Expired"
+                                ) : (
+                                  "Issue Certificate"
+                                )}
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          {(isLimitReached || isSubscriptionExpired) && (
+                            <TooltipContent>
+                              <p>
+                                {isLimitReached
+                                  ? "You have reached your monthly certificate issuance limit."
+                                  : "Your subscription has expired. Please renew."}
+                              </p>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
                   </form>
                 </CardContent>
@@ -878,103 +932,119 @@ const IssueCertificate = () => {
             {certificateData && (
               <Card className="border-2 border-primary/20 overflow-hidden">
                 <CardContent className="p-0">
-                  <div ref={certificateRef} className="aspect-[1.414/1] bg-white relative shadow-inner overflow-hidden mx-auto" style={{ maxWidth: '800px' }}>
-                    {certificateData.renderData ? (
-                      <div className="w-full h-full relative" style={{
-                        backgroundColor: certificateData.renderData.backgroundColor || '#ffffff',
-                        backgroundImage: certificateData.renderData.backgroundImage ? `url(${certificateData.renderData.backgroundImage})` : 'none',
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center'
-                      }}>
-                        {(() => {
-                          try {
-                            const canvasElements: any[] = certificateData.renderData.elements || [];
-                            return canvasElements.map((el: any) => {
-                              return (
-                                <div
-                                  key={el.id}
-                                  style={{
-                                    position: 'absolute',
-                                    left: `${el.x}%`,
-                                    top: `${el.y}%`,
-                                    width: el.width ? `${el.width}px` : 'auto',
-                                    height: el.height ? `${el.height}px` : 'auto',
-                                    color: el.color,
-                                    fontFamily: el.fontFamily,
-                                    fontSize: el.fontSize ? `${el.fontSize}px` : '20px',
-                                    fontWeight: el.fontWeight,
-                                    textAlign: el.align as any,
-                                    opacity: el.opacity,
-                                    padding: `${(el.padding || 0) / 2}px`,
-                                    zIndex: el.type === 'logo' ? 10 : 5,
-                                    transform: 'translate(-50%, -50%)',
-                                    maxWidth: '90%'
-                                  }}
-                                >
-                                  {el.type === 'text' && el.content}
-                                  {(el.type === 'logo' || el.type === 'signature') && (
-                                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
-                                  )}
-                                  {el.type === 'qrcode' && (
-                                    <div className="bg-white p-1 rounded-sm shadow-sm">
-                                      <QRCodeSVG
-                                        value={`${window.location.origin}/verify/${certificateData.certificateId}`}
-                                        size={el.width ? el.width : 100}
-                                        level="H"
-                                        includeMargin={false}
-                                      />
-                                    </div>
-                                  )}
-                                  {el.type === 'shape' && (
-                                    <div style={{
-                                      width: '100%',
-                                      height: '100%',
-                                      backgroundColor: el.fillColor,
-                                      border: `${(el.strokeWidth || 1) / 2}px solid ${el.color}`,
-                                      borderRadius: el.shapeType === 'circle' ? '50%' : (el.borderRadius || 0)
-                                    }} />
-                                  )}
-                                </div>
-                              );
-                            });
-                          } catch (e) {
-                            console.error("Renderer error:", e);
-                            return <div className="p-8 text-center text-muted-foreground">Failed to render template</div>;
-                          }
-                        })()}
-                      </div>
-                    ) : (
-                      <div className="p-12 text-center space-y-6 flex flex-col items-center justify-center h-full">
-                        {/* Original Free Preview Code */}
-                        <div className="space-y-4">
-                          {organizationLogo ? (
-                            <img src={organizationLogo} alt="Logo" className="w-24 h-24 mx-auto object-contain mb-4" />
-                          ) : (
-                            <Award className="w-16 h-16 text-primary mx-auto" />
-                          )}
-                          <h2 className="text-3xl font-bold text-foreground">Certificate of {certificateData.certificateType}</h2>
+                  <div className="w-full flex justify-center bg-muted/20 py-4 overflow-hidden">
+                    <div
+                      ref={certificateRef}
+                      className="bg-white relative shadow-lg mx-auto shrink-0"
+                      style={{
+                        width: '800px',
+                        height: certificateData.renderData?.orientation === 'portrait' ? '1131px' : '566px',
+                        // Dynamic scaling for mobile
+                        transform: `scale(${previewScale})`,
+                        transformOrigin: 'top center',
+                        marginBottom: `-${(certificateData.renderData?.orientation === 'portrait' ? 1131 : 566) * (1 - previewScale)}px` // Negative margin to reclaim space
+                      }}
+                    >
+                      {certificateData.renderData ? (
+                        <div className="w-full h-full relative" style={{
+                          width: '100%',
+                          height: '100%',
+                          backgroundColor: certificateData.renderData.backgroundColor || '#ffffff',
+                          backgroundImage: certificateData.renderData.backgroundImage ? `url(${certificateData.renderData.backgroundImage})` : 'none',
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                          overflow: 'hidden'
+                        }}>
+                          {(() => {
+                            try {
+                              const canvasElements: any[] = certificateData.renderData.elements || [];
+                              return canvasElements.map((el: any) => {
+                                return (
+                                  <div
+                                    key={el.id}
+                                    style={{
+                                      position: 'absolute',
+                                      left: `${el.x}%`,
+                                      top: `${el.y}%`,
+                                      width: el.width ? `${el.width}px` : 'auto',
+                                      height: el.height ? `${el.height}px` : 'auto',
+                                      color: el.color,
+                                      fontFamily: el.fontFamily,
+                                      fontSize: el.fontSize ? `${el.fontSize}px` : '20px',
+                                      fontWeight: el.fontWeight,
+                                      textAlign: el.align as any,
+                                      opacity: el.opacity,
+                                      padding: `${(el.padding || 0) / 2}px`,
+                                      zIndex: el.type === 'logo' ? 10 : 5,
+                                      transform: 'translate(-50%, -50%)',
+                                      maxWidth: '90%'
+                                    }}
+                                  >
+                                    {el.type === 'text' && el.content}
+                                    {(el.type === 'logo' || el.type === 'signature') && (
+                                      <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                                    )}
+                                    {el.type === 'qrcode' && (
+                                      <div className="bg-white p-1 rounded-sm shadow-sm">
+                                        <QRCodeSVG
+                                          value={`${window.location.origin}/verify/${certificateData.certificateId}`}
+                                          size={el.width ? el.width : 100}
+                                          level="H"
+                                          includeMargin={false}
+                                        />
+                                      </div>
+                                    )}
+                                    {el.type === 'shape' && (
+                                      <div style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        backgroundColor: el.fillColor,
+                                        border: `${(el.strokeWidth || 1) / 2}px solid ${el.color}`,
+                                        borderRadius: el.shapeType === 'circle' ? '50%' : (el.borderRadius || 0)
+                                      }} />
+                                    )}
+                                  </div>
+                                );
+                              });
+                            } catch (e) {
+                              console.error("Renderer error:", e);
+                              return <div className="p-8 text-center text-muted-foreground">Failed to render template</div>;
+                            }
+                          })()}
                         </div>
-                        <div className="space-y-4 py-8 border-y border-border w-full">
-                          <p className="text-lg text-muted-foreground">This is to certify that</p>
-                          <h3 className="text-4xl font-bold text-foreground">{certificateData.recipientName}</h3>
-                          <p className="text-lg text-muted-foreground">has successfully completed the</p>
-                          <h4 className="text-2xl font-semibold text-primary">{certificateData.courseName}</h4>
-                        </div>
-                        <div className="grid grid-cols-2 gap-8 w-full">
-                          <div>
-                            <p className="text-sm text-muted-foreground">Issued by</p>
-                            <p className="font-semibold">{certificateData.organizationName}</p>
+                      ) : (
+                        <div className="p-12 text-center space-y-6 flex flex-col items-center justify-center h-full">
+                          {/* Original Free Preview Code */}
+                          <div className="space-y-4">
+                            {organizationLogo ? (
+                              <img src={organizationLogo} alt="Logo" className="w-24 h-24 mx-auto object-contain mb-4" />
+                            ) : (
+                              <Award className="w-16 h-16 text-primary mx-auto" />
+                            )}
+                            <h2 className="text-3xl font-bold text-foreground">Certificate of {certificateData.certificateType}</h2>
                           </div>
-                          <div>
-                            <p className="text-sm text-muted-foreground">Date</p>
-                            <p className="font-semibold">{new Date(certificateData.issueDate).toLocaleDateString()}</p>
+                          <div className="space-y-4 py-8 border-y border-border w-full">
+                            <p className="text-lg text-muted-foreground">This is to certify that</p>
+                            <h3 className="text-4xl font-bold text-foreground">{certificateData.recipientName}</h3>
+                            <p className="text-lg text-muted-foreground">has successfully completed the</p>
+                            <h4 className="text-2xl font-semibold text-primary">{certificateData.courseName}</h4>
+                          </div>
+                          <div className="grid grid-cols-2 gap-8 w-full">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Issued by</p>
+                              <p className="font-semibold">{certificateData.organizationName}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Date</p>
+                              <p className="font-semibold">{new Date(certificateData.issueDate).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+                          <div className="pt-4 border-t border-border w-full">
+                            <p className="text-xs text-muted-foreground opacity-50">ID: {certificateData.certificateId}</p>
                           </div>
                         </div>
-                        <div className="pt-4 border-t border-border w-full">
-                          <p className="text-xs text-muted-foreground opacity-50">ID: {certificateData.certificateId}</p>
-                        </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>

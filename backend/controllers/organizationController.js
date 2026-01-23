@@ -8,7 +8,7 @@ const getOrganizationProfile = async (req, res) => {
     const orgId = req.user.orgId;
 
     const organization = await Organization.findById(orgId)
-      .select("name type email subscriptionPlan subscriptionStatus logo planId certificatePrefixes defaultCertificatePrefix")
+      .select("name type email subscriptionPlan subscriptionStatus logo planId certificatePrefixes defaultCertificatePrefix monthlyCertificateLimit certificatesIssuedThisMonth subscriptionEndDate")
       .populate("planId");
 
     if (!organization) {
@@ -44,7 +44,7 @@ const getAllOrganizations = async (req, res) => {
   try {
     // TODO: Add SUPER_ADMIN check middleware
     const organizations = await Organization.find({})
-      .select("name email subscriptionPlan paymentStatus accountStatus subscriptionStartDate subscriptionEndDate createdAt planId")
+      .select("name email subscriptionPlan paymentStatus accountStatus subscriptionStartDate subscriptionEndDate createdAt planId monthlyCertificateLimit certificatesIssuedThisMonth")
       .populate("planId", "planName monthlyPrice")
       .sort({ createdAt: -1 });
 
@@ -136,9 +136,29 @@ const approveOrganization = async (req, res) => {
       });
     }
 
-    // Calculate subscription end date (1 year from now)
+    // Calculate subscription end date (1 month from now)
     const subscriptionEndDate = new Date();
-    subscriptionEndDate.setFullYear(subscriptionEndDate.getFullYear() + 1);
+    subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + 1);
+
+    // Sync Limit from Plan
+    const Plan = require("../models/Plan");
+    // Find plan by ID if exists, otherwise by enum string
+    let plan = null;
+    if (organization.planId) {
+      plan = await Plan.findById(organization.planId);
+    }
+    if (!plan && organization.subscriptionPlan) {
+      plan = await Plan.findOne({ planName: organization.subscriptionPlan });
+    }
+
+    if (plan) {
+      organization.monthlyCertificateLimit = plan.maxCertificatesPerMonth;
+      if (!organization.planId) organization.planId = plan._id;
+    } else {
+      // Fallback defaults if Plan not found in DB
+      const defaults = { 'FREE': 50, 'PRO': 500, 'ENTERPRISE': 1500 };
+      organization.monthlyCertificateLimit = defaults[organization.subscriptionPlan] || 50;
+    }
 
     // Update organization
     organization.accountStatus = "ACTIVE";
@@ -431,6 +451,86 @@ const updateOrganizationProfile = async (req, res) => {
   }
 };
 
+/**
+ * Restart/Upgrade organization subscription (Master Dashboard)
+ * Resets start date to today and end date to 1 month from today
+ */
+const restartSubscription = async (req, res) => {
+  try {
+    const { orgId } = req.params;
+    const { planName } = req.body; // Optional: Upgrade details if needed
+
+    // TODO: Add SUPER_ADMIN check middleware
+
+    const organization = await Organization.findById(orgId);
+    if (!organization) {
+      return res.status(404).json({
+        success: false,
+        message: "Organization not found"
+      });
+    }
+
+    // Reset dates: Start = NOW, End = NOW + 1 Month
+    // Reset dates: Start = NOW, End = NOW + 1 Month
+    const newStartDate = new Date();
+    const newEndDate = new Date();
+    newEndDate.setMonth(newEndDate.getMonth() + 1);
+
+    organization.subscriptionStatus = "ACTIVE";
+    organization.accountStatus = "ACTIVE";
+    organization.subscriptionStartDate = newStartDate;
+    organization.subscriptionEndDate = newEndDate;
+    organization.certificatesIssuedThisMonth = 0;
+
+    // Sync Limit from Plan (Handling both restart and upgrade)
+    const Plan = require("../models/Plan");
+    let planNameTarget = planName || organization.subscriptionPlan;
+
+    // Fallback defaults
+    const defaults = { 'FREE': 50, 'PRO': 500, 'ENTERPRISE': 1500 };
+
+    if (planNameTarget) {
+      const newPlan = await Plan.findOne({ planName: planNameTarget });
+      if (newPlan) {
+        organization.subscriptionPlan = planNameTarget;
+        organization.planId = newPlan._id;
+        organization.monthlyCertificateLimit = newPlan.maxCertificatesPerMonth;
+      } else {
+        // Fallback if DB plan missing
+        organization.monthlyCertificateLimit = defaults[planNameTarget] || 50;
+        if (planName) organization.subscriptionPlan = planName; // Ensure upgrade name sticks
+      }
+    }
+
+    await organization.save();
+
+    // Log audit
+    await AuditLog.create({
+      orgId: organization._id,
+      userId: req.user?.userId || null,
+      action: "SUBSCRIPTION_RESTARTED",
+      entityType: "ORGANIZATION",
+      entityId: organization._id,
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      metadata: { newPlan: planName || "Same Plan" }
+    });
+
+    res.json({
+      success: true,
+      message: "Subscription restarted successfully",
+      data: organization
+    });
+
+  } catch (error) {
+    console.error("Restart subscription error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to restart subscription"
+    });
+  }
+};
+
 module.exports = {
   getOrganizationProfile,
   updateOrganizationProfile,
@@ -440,5 +540,6 @@ module.exports = {
   deactivateSubscription,
   deleteOrganization,
   getOrganizationDetails,
+  restartSubscription,
 };
 

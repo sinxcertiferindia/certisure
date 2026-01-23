@@ -23,6 +23,7 @@ router.post("/:orgId/block", auth, blockOrganization);
 router.post("/:orgId/deactivate", auth, deactivateSubscription);
 router.get("/:orgId", auth, getOrganizationDetails);
 router.delete("/:orgId", auth, deleteOrganization);
+router.post("/:orgId/restart", auth, require("../controllers/organizationController").restartSubscription);
 
 module.exports = router;
 

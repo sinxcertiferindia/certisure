@@ -51,6 +51,9 @@ interface OrganizationData {
   accountStatus: string;
   logo?: string;
   plan: PlanData;
+  subscriptionEndDate?: string;
+  monthlyCertificateLimit?: number;
+  certificatesIssuedThisMonth?: number;
 }
 
 interface DashboardStats {
@@ -69,6 +72,62 @@ interface Certificate {
   issueDate: string;
   status: string;
 }
+
+const NotificationBanner = ({ org }: { org: OrganizationData }) => {
+  if (!org) return null;
+
+  const alerts = [];
+  const limit = org.monthlyCertificateLimit || 50;
+  const used = org.certificatesIssuedThisMonth || 0;
+  const percentage = (used / limit) * 100;
+
+  // Expiry Check
+  if (org.subscriptionEndDate) {
+    const daysLeft = Math.ceil((new Date(org.subscriptionEndDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= 7 && daysLeft >= 0) {
+      alerts.push({
+        type: 'warning',
+        message: `⚠️ Your subscription will expire in ${daysLeft} days (${new Date(org.subscriptionEndDate).toLocaleDateString()})`
+      });
+    } else if (daysLeft < 0) {
+      alerts.push({
+        type: 'destructive',
+        message: `❌ Subscription expired on ${new Date(org.subscriptionEndDate).toLocaleDateString()}. Please renew to continue.`
+      });
+    }
+  }
+
+  // Limit Check
+  if (percentage >= 100) {
+    alerts.push({
+      type: 'destructive',
+      message: `❌ Monthly certificate limit reached (${used}/${limit}). Upgrade plan to continue issuing.`
+    });
+  } else if (percentage >= 80) {
+    alerts.push({
+      type: 'warning',
+      message: `⚠️ You used ${used}/${limit} certificates this month.`
+    });
+  }
+
+  if (alerts.length === 0) return null;
+
+  return (
+    <div className="space-y-2 mb-6">
+      {alerts.map((alert, i) => (
+        <div
+          key={i}
+          className={`px-4 py-3 rounded-md text-sm font-medium flex items-center gap-2 ${alert.type === 'destructive'
+            ? 'bg-destructive/10 text-destructive border border-destructive/20'
+            : 'bg-warning/10 text-warning-foreground border border-warning/20'
+            }`}
+        >
+          {alert.message}
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const Dashboard = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -272,6 +331,8 @@ const Dashboard = () => {
 
         {/* Dashboard Content */}
         <div className="p-6 space-y-6">
+          <NotificationBanner org={organizationData as OrganizationData} />
+
           {/* Stats Grid */}
           {isLoadingDashboard ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -289,7 +350,59 @@ const Dashboard = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {dashboardStatsDisplay.map((stat, index) => (
+              {/* Usage Summary Card - NEW */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="col-span-1 md:col-span-2 lg:col-span-1"
+              >
+                <Card className="h-full border-primary/20 bg-primary/5">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-semibold text-primary flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4" /> Usage Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-muted-foreground">Monthly Limit</span>
+                          <span className="font-bold">
+                            {organizationData?.certificatesIssuedThisMonth || 0} / {organizationData?.monthlyCertificateLimit || 50}
+                          </span>
+                        </div>
+                        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${((organizationData?.certificatesIssuedThisMonth || 0) / (organizationData?.monthlyCertificateLimit || 1)) >= 1
+                              ? 'bg-destructive'
+                              : 'bg-primary'
+                              }`}
+                            style={{ width: `${Math.min(((organizationData?.certificatesIssuedThisMonth || 0) / (organizationData?.monthlyCertificateLimit || 50)) * 100, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-primary/10 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <p className="text-muted-foreground text-xs">Plan</p>
+                          <p className="font-semibold">{organizationData?.subscriptionPlan}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-muted-foreground text-xs">Renewal</p>
+                          <p className="font-semibold">
+                            {organizationData?.subscriptionEndDate
+                              ? new Date(organizationData.subscriptionEndDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                              : 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              {dashboardStatsDisplay.slice(0, 3).map((stat, index) => (
                 <motion.div
                   key={stat.label}
                   initial={{ opacity: 0, y: 20 }}

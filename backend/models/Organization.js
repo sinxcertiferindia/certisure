@@ -69,6 +69,18 @@ const organizationSchema = new Schema(
     subscriptionEndDate: {
       type: Date,
     },
+    monthlyCertificateLimit: {
+      type: Number,
+      default: 50 // Default to FREE plan limit
+    },
+    certificatesIssuedThisMonth: {
+      type: Number,
+      default: 0
+    },
+    lastResetDate: {
+      type: Date,
+      default: Date.now
+    },
     isActive: {
       type: Boolean,
       default: true,
