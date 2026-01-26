@@ -726,7 +726,15 @@ const Verify = () => {
                                       justifyContent: el.align === 'center' ? 'center' : (el.align === 'right' ? 'flex-end' : 'flex-start'),
                                     }}
                                   >
-                                    {el.type === 'text' && el.content}
+                                    {el.type === 'text' && (
+                                      el.content
+                                        .replace(/{{recipient_name}}/g, verificationResult.recipientName)
+                                        .replace(/{{course_name}}/g, verificationResult.courseName)
+                                        .replace(/{{issue_date}}/g, new Date(verificationResult.issueDate).toLocaleDateString())
+                                        .replace(/{{credential_id}}/g, verificationResult.credentialId)
+                                        .replace(/{{organization_name}}/g, verificationResult.issuerOrg)
+                                        .replace(/{{expiry_date}}/g, verificationResult.expiryDate ? new Date(verificationResult.expiryDate).toLocaleDateString() : '')
+                                    )}
                                     {(el.type === 'logo' || el.type === 'signature') && (
                                       <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
                                     )}

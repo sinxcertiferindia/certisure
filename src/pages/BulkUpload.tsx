@@ -20,6 +20,11 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
+import { QRCodeSVG } from "qrcode.react";
 
 interface CSVRecord {
   recipient_name: string;
@@ -45,6 +50,13 @@ const BulkUpload = () => {
   } | null>(null);
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>("FREE");
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
+
+  // Bulk Export State
+  const [issuedCertificates, setIssuedCertificates] = useState<any[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
+  const [currentExportCert, setCurrentExportCert] = useState<any | null>(null);
+  const [exportProgress, setExportProgress] = useState(0);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   // New State for Template and Type Selection
   const [certificateTemplates, setCertificateTemplates] = useState<any[]>([]);
@@ -231,6 +243,10 @@ Jane Smith,jane.smith@example.com,Data Science Fundamentals,TechCorp Academy,202
           failed,
         });
 
+        if (result.certificates && result.certificates.length > 0) {
+          setIssuedCertificates(result.certificates);
+        }
+
         toast({
           title: "Upload Processed",
           description: `${successful} certificates generated successfully out of ${total} records.`,
@@ -248,6 +264,80 @@ Jane Smith,jane.smith@example.com,Data Science Fundamentals,TechCorp Academy,202
       });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleBulkExport = async () => {
+    if (issuedCertificates.length === 0) return;
+
+    setIsExporting(true);
+    setExportProgress(0);
+    const zip = new JSZip();
+
+    try {
+      const folder = zip.folder(`certificates_batch_${new Date().toISOString().split('T')[0]}`);
+
+      for (let i = 0; i < issuedCertificates.length; i++) {
+        const cert = issuedCertificates[i];
+        setCurrentExportCert(cert);
+        setExportProgress(Math.round(((i + 1) / issuedCertificates.length) * 100));
+
+        // Wait for render to update
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        if (exportRef.current) {
+          const element = exportRef.current;
+
+          // Capture with high quality
+          const canvas = await html2canvas(element, {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: cert.renderData?.backgroundColor || '#ffffff',
+            // Default width handling
+          });
+
+          const imgData = canvas.toDataURL('image/png', 1.0);
+
+          // PDF Setup (A4)
+          const orientation = cert.renderData?.orientation === 'portrait' ? 'p' : 'l';
+          const pdf = new jsPDF({
+            orientation: orientation,
+            unit: 'mm',
+            format: 'a4'
+          });
+
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = pdf.internal.pageSize.getHeight();
+
+          pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+          if (folder) {
+            folder.file(`${cert.recipientName.replace(/[^a-z0-9]/gi, '_')}_${cert.certificateId}.pdf`, pdf.output('blob'));
+          }
+        }
+      }
+
+      // Generate ZIP
+      const zipContent = await zip.generateAsync({ type: "blob" });
+      saveAs(zipContent, `certificates_bulk_export.zip`);
+
+      toast({
+        title: "Export Complete",
+        description: "All certificates have been downloaded.",
+      });
+
+    } catch (error) {
+      console.error("Export error:", error);
+      toast({
+        title: "Export Failed",
+        description: "An error occurred while generating the export.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsExporting(false);
+      setCurrentExportCert(null);
+      setExportProgress(0);
     }
   };
 
@@ -626,32 +716,148 @@ Jane Smith,jane.smith@example.com,Data Science Fundamentals,TechCorp Academy,202
                       <p className="text-sm text-muted-foreground">Failed</p>
                     </div>
                   </div>
-                  <div className="flex gap-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setUploadResults(null);
-                        setUploadedFile(null);
-                        if (fileInputRef.current) {
-                          fileInputRef.current.value = "";
-                        }
-                      }}
-                      className="flex-1"
-                    >
-                      Upload Another
-                    </Button>
-                    <Button
-                      onClick={() => navigate("/dashboard")}
-                      variant="premium"
-                      className="flex-1"
-                    >
-                      Back to Dashboard
-                    </Button>
+                  <div className="flex flex-col gap-4">
+                    {!isExporting ? (
+                      <Button
+                        onClick={handleBulkExport}
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        size="lg"
+                      >
+                        <Download className="w-5 h-5 mr-2" />
+                        Download All Certificates (ZIP)
+                      </Button>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Exporting Certificates...</span>
+                          <span>{exportProgress}%</span>
+                        </div>
+                        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-600 transition-all duration-300"
+                            style={{ width: `${exportProgress}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground text-center">
+                          Please wait while we generate your certificate files.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex gap-4">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setUploadResults(null);
+                          setUploadedFile(null);
+                          setIssuedCertificates([]); // Clear issued certs
+                          setCurrentExportCert(null);
+                          if (fileInputRef.current) {
+                            fileInputRef.current.value = "";
+                          }
+                        }}
+                        className="flex-1"
+                      >
+                        Upload Another
+                      </Button>
+                      <Button
+                        onClick={() => navigate("/dashboard")}
+                        variant="ghost"
+                        className="flex-1"
+                      >
+                        Back to Dashboard
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </motion.div>
+        )}
+
+        {/* Hidden Renderer for Export */}
+        {currentExportCert && (
+          <div style={{ position: 'fixed', top: '-10000px', left: '-10000px', visibility: 'visible' }}>
+            <div
+              ref={exportRef}
+              style={{
+                width: '1000px',
+                height: (currentExportCert.renderData?.orientation === 'portrait' ? '1414px' : '707px'),
+                position: 'relative',
+                backgroundColor: currentExportCert.renderData?.backgroundColor || '#ffffff',
+                backgroundImage: currentExportCert.renderData?.backgroundImage ? `url(${currentExportCert.renderData.backgroundImage})` : 'none',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                overflow: 'hidden'
+              }}
+            >
+              {(() => {
+                try {
+                  const canvasElements: any[] = currentExportCert.renderData?.elements || [];
+                  return canvasElements.map((el: any) => {
+                    return (
+                      <div
+                        key={el.id}
+                        style={{
+                          position: 'absolute',
+                          left: `${el.x}%`,
+                          top: `${el.y}%`,
+                          width: el.width ? `${el.width}px` : 'auto',
+                          height: el.height ? `${el.height}px` : 'auto',
+                          color: el.color,
+                          fontFamily: el.fontFamily,
+                          fontSize: el.fontSize ? `${el.fontSize}px` : '20px',
+                          fontWeight: el.fontWeight,
+                          textAlign: el.align as any,
+                          opacity: el.opacity,
+                          padding: `${(el.padding || 0) / 2}px`,
+                          zIndex: el.type === 'logo' ? 10 : 5,
+                          transform: 'translate(-50%, -50%)',
+                          maxWidth: '90%'
+                        }}
+                      >
+                        {el.type === 'text' && (
+                          el.content
+                            .replace(/{{recipient_name}}/g, currentExportCert.recipientName || '')
+                            .replace(/{{course_name}}/g, currentExportCert.courseName || '')
+                            .replace(/{{issue_date}}/g, new Date(currentExportCert.issueDate).toLocaleDateString() || '')
+                            .replace(/{{credential_id}}/g, currentExportCert.certificateId || '')
+                            // Fallback for org name if not directly on cert object
+                            .replace(/{{organization_name}}/g, currentExportCert.organizationName || 'Organization')
+                            .replace(/{{expiry_date}}/g, currentExportCert.expiryDate ? new Date(currentExportCert.expiryDate).toLocaleDateString() : '')
+                        )}
+                        {(el.type === 'logo' || el.type === 'signature') && (
+                          <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                        )}
+                        {el.type === 'qrcode' && (
+                          <div className="bg-white p-1 rounded-sm shadow-sm">
+                            <QRCodeSVG
+                              value={`${window.location.origin}/verify/${currentExportCert.certificateId}`}
+                              size={el.width ? el.width : 100}
+                              level="H"
+                              includeMargin={false}
+                            />
+                          </div>
+                        )}
+                        {el.type === 'shape' && (
+                          <div style={{
+                            width: '100%',
+                            height: '100%',
+                            backgroundColor: el.fillColor,
+                            border: `${(el.strokeWidth || 1) / 2}px solid ${el.color}`,
+                            borderRadius: el.shapeType === 'circle' ? '50%' : (el.borderRadius || 0)
+                          }} />
+                        )}
+                      </div>
+                    );
+                  });
+                } catch (e) {
+                  console.error("Renderer error:", e);
+                  return null;
+                }
+              })()}
+            </div>
+          </div>
         )}
       </div>
     </div>

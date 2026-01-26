@@ -38,6 +38,7 @@ import {
   Pentagon,
   Hexagon,
   ArrowRight,
+  Building2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
@@ -97,6 +98,7 @@ const CertificateBuilder = () => {
   const [templateName, setTemplateName] = useState("");
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>("FREE");
+  const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({});
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -113,16 +115,14 @@ const CertificateBuilder = () => {
           const org = response.data.data.organization;
           const planName = org.plan?.planName || org.subscriptionPlan || "FREE";
           setSubscriptionPlan(planName);
+          setOrganizationLogo(org.logo || null);
 
+          // ... rest of loading logic
           const fetchedPermissions = org.plan?.permissions || { editorTools: {} };
-
           setPermissions(fetchedPermissions);
-
+          // ...
           if (org.plan?.planName === "FREE") {
-            toast({
-              title: "Free Plan Mode",
-              description: "Some design tools are restricted. Upgrade to Pro for full control.",
-            });
+            // ...
           }
         }
         setIsLoadingPlan(false);
@@ -133,6 +133,9 @@ const CertificateBuilder = () => {
     };
     loadOrganization();
   }, [navigate, toast]);
+
+
+
 
   // Load existing template from API
   useEffect(() => {
@@ -228,6 +231,21 @@ const CertificateBuilder = () => {
       align: "center",
       textDecoration: "none",
       padding: 0,
+    };
+    setElements([...elements, newElement]);
+    setSelectedElement(newElement.id);
+  };
+
+  const handleAddOrgLogo = () => {
+    const newElement: CanvasElement = {
+      id: Date.now().toString(),
+      type: "logo",
+      x: 10,
+      y: 10,
+      width: 150,
+      height: 150,
+      imageUrl: "", // Empty URL signals dynamic org logo
+      placeholder: true,
     };
     setElements([...elements, newElement]);
     setSelectedElement(newElement.id);
@@ -628,22 +646,32 @@ const CertificateBuilder = () => {
 
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="w-full">
+                        <div className="w-full flex gap-1">
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={handleAddLogo}
                             disabled={!permissions.editorTools?.logoUpload}
-                            className="w-full flex flex-col h-auto py-4 hover:bg-muted/50 transition-colors relative"
+                            className="flex-1 flex flex-col h-auto py-4 hover:bg-muted/50 transition-colors relative"
                           >
                             <ImageIcon className="w-6 h-6 mb-2 text-primary" />
-                            <span className="text-xs font-medium">Logo</span>
+                            <span className="text-xs font-medium">Upload Logo</span>
                             {!permissions.editorTools?.logoUpload && <LockIcon className="w-3 h-3 absolute top-1 right-1 text-muted-foreground" />}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAddOrgLogo}
+                            className="flex-1 flex flex-col h-auto py-4 hover:bg-muted/50 transition-colors"
+                            title="Use Organization Logo (Dynamic)"
+                          >
+                            <Building2 className="w-6 h-6 mb-2 text-primary" />
+                            <span className="text-xs font-medium">Org Logo</span>
                           </Button>
                         </div>
                       </TooltipTrigger>
                       {!permissions.editorTools?.logoUpload && (
-                        <TooltipContent><p>Upgrade to Pro to upload logos</p></TooltipContent>
+                        <TooltipContent><p>Upgrade to Pro to upload custom logos</p></TooltipContent>
                       )}
                     </Tooltip>
 

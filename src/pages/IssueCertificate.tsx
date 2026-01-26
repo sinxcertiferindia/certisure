@@ -318,12 +318,11 @@ const IssueCertificate = () => {
       await new Promise(r => setTimeout(r, 500));
 
       const canvas = await html2canvas(element, {
-        scale: 2, // High resolution
+        scale: 4, // Higher resolution for crisp print
         useCORS: true,
         logging: false,
-        backgroundColor: selectedTemplate?.backgroundColor || '#ffffff', // Use template background color
-        width: 1000, // Match fixed width
-        height: element.offsetHeight,
+        backgroundColor: selectedTemplate?.backgroundColor || '#ffffff',
+        // Auto-detect width/height from element to avoid white gaps
       });
 
       // Restore original transform
@@ -332,13 +331,17 @@ const IssueCertificate = () => {
       const imgData = canvas.toDataURL('image/png', 1.0);
       const orientation = selectedTemplate?.orientation === 'portrait' ? 'p' : 'l';
 
+      // Standard A4 PDF generation (Full Bleed)
       const pdf = new jsPDF({
         orientation: orientation,
-        unit: 'px',
-        format: [canvas.width, canvas.height]
+        unit: 'mm',
+        format: 'a4'
       });
 
-      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
       pdf.save(`${certificateData?.certificateId || 'Certificate'}.pdf`);
 
       toast({
@@ -368,12 +371,11 @@ const IssueCertificate = () => {
       await new Promise(r => setTimeout(r, 500));
 
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 4, // Higher resolution
         useCORS: true,
         logging: false,
-        backgroundColor: selectedTemplate?.backgroundColor || '#ffffff', // Use template background color
-        width: 1000,
-        height: element.offsetHeight,
+        backgroundColor: selectedTemplate?.backgroundColor || '#ffffff',
+        // Auto-detect width/height for accurate capture
       });
 
       element.style.transform = originalTransform;
@@ -980,7 +982,15 @@ const IssueCertificate = () => {
                                       maxWidth: '90%'
                                     }}
                                   >
-                                    {el.type === 'text' && el.content}
+                                    {el.type === 'text' && (
+                                      el.content
+                                        .replace(/{{recipient_name}}/g, certificateData.recipientName)
+                                        .replace(/{{course_name}}/g, certificateData.courseName)
+                                        .replace(/{{issue_date}}/g, new Date(certificateData.issueDate).toLocaleDateString())
+                                        .replace(/{{credential_id}}/g, certificateData.certificateId)
+                                        .replace(/{{organization_name}}/g, certificateData.organizationName)
+                                        .replace(/{{expiry_date}}/g, certificateData.expirationDate ? new Date(certificateData.expirationDate).toLocaleDateString() : '')
+                                    )}
                                     {(el.type === 'logo' || el.type === 'signature') && (
                                       <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
                                     )}

@@ -177,30 +177,33 @@ const Certificates = () => {
         const element = downloadRef.current;
 
         // Use html2canvas to capture the visual design
-        // We need to ensure the element is visible for capture, but hidden from user flow. 
-        // It's positioned off-screen in the JSX.
-
         const canvas = await import("html2canvas").then(m => m.default(element, {
-          scale: 2, // High resolution
+          scale: 2, // High resolution capture
           useCORS: true,
           logging: false,
           backgroundColor: cert.renderData?.backgroundColor || '#ffffff',
-          width: 1000,
+          width: 1000, // Match target dimensions
           height: element.offsetHeight,
-          windowWidth: 1200, // Ensure wide enough viewport context
+          windowWidth: 1200,
         }));
 
         const imgData = canvas.toDataURL('image/png', 1.0);
         const orientation = cert.renderData?.orientation === 'portrait' ? 'p' : 'l';
-        const format = [canvas.width, canvas.height];
 
+        // Create PDF with standard A4 dimensions
         const pdf = new jsPDF({
           orientation: orientation,
-          unit: 'px',
-          format: format
+          unit: 'mm',
+          format: 'a4'
         });
 
-        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        // Get exact A4 dimensions
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+
+        // Add image scaling to fill the entire A4 page (Full Bleed)
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
         pdf.save(`${cert.id}.pdf`);
 
         toast({
