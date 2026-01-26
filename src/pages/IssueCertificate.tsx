@@ -321,7 +321,7 @@ const IssueCertificate = () => {
         scale: 2, // High resolution
         useCORS: true,
         logging: false,
-        backgroundColor: null,
+        backgroundColor: selectedTemplate?.backgroundColor || '#ffffff', // Use template background color
         width: 1000, // Match fixed width
         height: element.offsetHeight,
       });
@@ -371,7 +371,7 @@ const IssueCertificate = () => {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff',
+        backgroundColor: selectedTemplate?.backgroundColor || '#ffffff', // Use template background color
         width: 1000,
         height: element.offsetHeight,
       });

@@ -38,6 +38,18 @@ const userSchema = new Schema(
       index: true, // Critical for login queries
       match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email'],
     },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailOtp: {
+      type: String,
+      select: false, // Security: Don't expose OTP
+    },
+    emailOtpExpires: {
+      type: Date,
+      select: false,
+    },
     mobile: {
       type: String,
       trim: true,

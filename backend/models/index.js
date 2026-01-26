@@ -10,6 +10,7 @@ const CertificateTemplate = require('./CertificateTemplate');
 const EmailTemplate = require('./EmailTemplate');
 const AuditLog = require('./AuditLog');
 const Plan = require('./Plan');
+const Verification = require('./Verification');
 
 module.exports = {
   User,
@@ -19,5 +20,6 @@ module.exports = {
   EmailTemplate,
   AuditLog,
   Plan,
+  Verification,
 };
 

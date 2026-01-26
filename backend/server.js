@@ -26,3 +26,5 @@ mongoose
     console.error("MongoDB connection error:", err);
   });
 
+
+// Server config updated

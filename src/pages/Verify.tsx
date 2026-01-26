@@ -639,7 +639,7 @@ const Verify = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}
-                className="max-w-4xl mx-auto mt-8"
+                className="max-w-7xl mx-auto mt-8"
               >
                 <Card variant="certificate" className="overflow-hidden">
                   {/* Status Banner */}
@@ -678,7 +678,7 @@ const Verify = () => {
                   <CardContent className="p-0">
                     <div className="grid lg:grid-cols-3">
                       {/* Certificate Visual Rendering */}
-                      <div className="lg:col-span-2 bg-[#f8fafc] p-6 border-r flex items-center justify-center min-h-[400px]">
+                      <div className="lg:col-span-2 bg-[#f8fafc] p-6 border-r flex items-center justify-center min-h-[400px] overflow-hidden">
                         <div className="w-full max-w-[800px] mx-auto">
                           <div
                             ref={certificateRef}

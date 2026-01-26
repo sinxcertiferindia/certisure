@@ -26,6 +26,23 @@ import {
   ArrowUp,
 } from "lucide-react";
 import api from "@/services/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 
 const OrganizationDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +51,12 @@ const OrganizationDetail = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState({ usersCount: 0, certificatesCount: 0, templatesCount: 0 });
   const [recentCertificates, setRecentCertificates] = useState<any[]>([]);
+
+  // Upgrade Plan State
+  const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<string>("FREE");
+  const [isUpgrading, setIsUpgrading] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     const fetchOrgDetails = async () => {
@@ -126,9 +149,46 @@ const OrganizationDetail = () => {
       const response = await api.post(`/org/${id}/deactivate`);
       if (response.data.success) {
         setOrganization(response.data.data);
+        toast({
+          title: "Subscription Stopped",
+          description: "The subscription has been deactivated.",
+        });
       }
     } catch (error) {
       console.error("Failed to stop subscription:", error);
+      toast({
+        title: "Error",
+        description: "Failed to stop subscription.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpgradeSubmit = async () => {
+    if (!selectedPlan) return;
+
+    setIsUpgrading(true);
+    try {
+      // Using restart endpoint as it handles plan updates and cycle reset
+      const response = await api.post(`/org/${id}/restart`, { planName: selectedPlan });
+
+      if (response.data.success) {
+        setOrganization(response.data.data);
+        toast({
+          title: "Plan Upgraded",
+          description: `Organization has been upgraded to ${selectedPlan}. Subscription cycle restarted.`,
+        });
+        setIsUpgradeOpen(false);
+      }
+    } catch (error: any) {
+      console.error("Failed to upgrade plan:", error);
+      toast({
+        title: "Upgrade Failed",
+        description: error.response?.data?.message || "Could not upgrade plan.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpgrading(false);
     }
   };
 
@@ -290,7 +350,14 @@ const OrganizationDetail = () => {
                     <Pause className="w-4 h-4 mr-2" />
                     Stop Subscription
                   </Button>
-                  <Button variant="premium" className="flex-1">
+                  <Button
+                    variant="premium"
+                    className="flex-1"
+                    onClick={() => {
+                      setSelectedPlan(organization.subscriptionPlan || "FREE");
+                      setIsUpgradeOpen(true);
+                    }}
+                  >
                     <ArrowUp className="w-4 h-4 mr-2" />
                     Upgrade Plan
                   </Button>
@@ -389,6 +456,49 @@ const OrganizationDetail = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={isUpgradeOpen} onOpenChange={setIsUpgradeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upgrade Subscription Plan</DialogTitle>
+            <DialogDescription>
+              Select a new plan for this organization. This will update their plan and restart the subscription cycle from today.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="plan" className="text-right">
+                New Plan
+              </Label>
+              <Select value={selectedPlan} onValueChange={setSelectedPlan}>
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select a plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FREE">Free</SelectItem>
+                  <SelectItem value="PRO">Pro</SelectItem>
+                  <SelectItem value="ENTERPRISE">Enterprise</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
+              <p className="font-semibold mb-1">Feature Changes:</p>
+              <ul className="list-disc pl-5 space-y-1">
+                {selectedPlan === "FREE" && <li>Limit: 50 certificates/month</li>}
+                {selectedPlan === "PRO" && <li>Limit: 500 certificates/month</li>}
+                {selectedPlan === "ENTERPRISE" && <li>Limit: 1500+ certificates/month</li>}
+                <li>Cycle restarts today</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsUpgradeOpen(false)}>Cancel</Button>
+            <Button onClick={handleUpgradeSubmit} disabled={isUpgrading} variant="premium">
+              {isUpgrading ? "Upgrading..." : "Confirm Upgrade"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

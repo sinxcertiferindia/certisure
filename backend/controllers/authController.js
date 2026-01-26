@@ -1,4 +1,6 @@
-const { User, Organization, AuditLog } = require("../models");
+const { User, Organization, AuditLog, Verification } = require("../models");
+const sendEmail = require("../utils/sendEmail");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 
 /**
@@ -11,6 +13,14 @@ const registerOrganization = async (req, res) => {
     // Validate input
     if (!organization || !admin) {
       return res.status(400).json({ message: "Organization and admin data required" });
+    }
+
+    // 0. Verify Email Status (CRITICAL SECURITY CHECK)
+    const verificationRecord = await Verification.findOne({ email: admin.email });
+    if (!verificationRecord || !verificationRecord.verified) {
+      return res.status(400).json({
+        message: "Email not verified. Please verify your email address before registering."
+      });
     }
 
     // Check if user already exists
@@ -252,8 +262,226 @@ const login = async (req, res) => {
   }
 };
 
+
+/**
+ * Send OTP for Signup
+ */
+const sendSignupOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists. Please login." });
+    }
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    // Save/Update Verification
+    await Verification.findOneAndUpdate(
+      { email },
+      { email, otp, expires, verified: false },
+      { upsert: true, new: true }
+    );
+
+    // Send Email
+    const message = `Your Certisure verification code is: ${otp}\n\nThis code is valid for 10 minutes.\nDo not share this code with anyone.`;
+
+    await sendEmail({
+      email,
+      subject: "Email Verification Code - Certisure",
+      message,
+    });
+
+    res.status(200).json({ success: true, message: "OTP sent to email" });
+  } catch (error) {
+    console.error("Send OTP Error:", error);
+    res.status(500).json({ message: "Failed to send OTP: " + (error.message || "Internal Error") });
+  }
+};
+
+/**
+ * Verify OTP for Signup
+ */
+const verifySignupOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ message: "Email and OTP required" });
+
+    const record = await Verification.findOne({ email });
+    if (!record) {
+      return res.status(400).json({ message: "Invalid request. Request OTP first." });
+    }
+
+    if (record.otp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    if (Date.now() > record.expires) {
+      return res.status(400).json({ message: "OTP expired. Request a new one." });
+    }
+
+    // Mark verified
+    record.verified = true;
+    // Don't delete OTP immediately if we want to allow re-verification within session, but clearing it is safer.
+    // However, if schema requires fields, we might fail validation if we set them to undefined.
+    // Check schema definition: Verification.js might require otp/expires.
+
+    // Let's check if schema has required: true for otp?
+    // If so, we can't set it to undefined. Let's just keep it but mark verified.
+    // checking Verification.js content again might be needed, but to be safe:
+    record.otp = null;
+    record.expires = null;
+
+    // Wait, if schema says required: true, null might fail too.
+    // Let's modify schema to distinct verified state or allow nulls.
+    // For now, let's just set verified=true and update logic.
+
+    await Verification.findOneAndUpdate(
+      { email },
+      {
+        $set: { verified: true },
+        $unset: { otp: 1, expires: 1 }
+      }
+    );
+
+    res.status(200).json({ success: true, message: "Email verified successfully" });
+  } catch (error) {
+    console.error("Verify OTP Error Detail:", error);
+    res.status(500).json({ message: "Verification failed: " + error.message });
+  }
+};
+
+/**
+ * Send OTP for Forgot Password
+ */
+const sendForgotPasswordOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    user.emailOtp = otp;
+    user.emailOtpExpires = expires;
+    await user.save();
+
+    // Send Email
+    const message = `Your Certisure password reset code is: ${otp}\n\nThis code is valid for 10 minutes.\nDo not share this code with anyone.`;
+
+    await sendEmail({
+      email,
+      subject: "Password Reset Code - Certisure",
+      message,
+    });
+
+    res.status(200).json({ success: true, message: "OTP sent to email" });
+  } catch (error) {
+    console.error("Forgot Password Error:", error);
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
+};
+
+/**
+ * Verify Forgot Password OTP
+ */
+const verifyForgotPasswordOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ message: "Email and OTP required" });
+
+    const user = await User.findOne({ email }).select("+emailOtp +emailOtpExpires"); // Need to select hidden fields
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.emailOtp || user.emailOtp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    if (Date.now() > user.emailOtpExpires) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    // Generate a temporary reset token
+    // We can use JWT for this, specific for password reset
+    const resetToken = jwt.sign(
+      { userId: user._id, type: "password_reset" },
+      process.env.JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    // We verified the OTP, so clear it
+    user.emailOtp = undefined;
+    user.emailOtpExpires = undefined;
+    user.emailVerified = true; // Ensure confirmed
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "OTP verified",
+      resetToken
+    });
+  } catch (error) {
+    console.error("Verify Reset OTP Error:", error);
+    res.status(500).json({ message: "Verification failed" });
+  }
+};
+
+/**
+ * Reset Password
+ */
+const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) return res.status(400).json({ message: "Token and new password required" });
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== "password_reset") {
+      return res.status(400).json({ message: "Invalid token type" });
+    }
+
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.password = newPassword; // Pre-save hook will hash it
+    // Reset login attempts/lockout if any
+    user.failedLoginAttempts = 0;
+    user.lockUntil = undefined;
+
+    await user.save();
+
+    res.status(200).json({ success: true, message: "Password reset successfully. Please login." });
+  } catch (error) {
+    console.error("Reset Password Error:", error);
+    if (error.name === "JsonWebTokenError") {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+    res.status(500).json({ message: "Failed to reset password" });
+  }
+};
+
 module.exports = {
   registerOrganization,
   login,
+  sendSignupOtp,
+  verifySignupOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
+  resetPassword,
 };
 

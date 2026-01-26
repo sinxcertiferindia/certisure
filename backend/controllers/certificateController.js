@@ -165,7 +165,9 @@ const issueCertificate = async (req, res) => {
     }
 
     // If templateId provided, validate ObjectId format and verify it belongs to organization
-    if (templateId && planFeatures.customTemplates) {
+    let template = null;
+    console.log("DEBUG: Received templateId:", templateId); // DEBUG LOG
+    if (templateId) {
       // Validate ObjectId format
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
         return res.status(400).json({
@@ -174,10 +176,11 @@ const issueCertificate = async (req, res) => {
         });
       }
 
-      const template = await CertificateTemplate.findOne({
+      template = await CertificateTemplate.findOne({
         _id: templateId,
         orgId: orgId, // 🔐 Ensure template belongs to this org
       });
+      console.log("DEBUG: Template found via ID:", template ? template._id : "null"); // DEBUG LOG
 
       if (!template) {
         return res.status(404).json({
@@ -185,6 +188,20 @@ const issueCertificate = async (req, res) => {
           message: "Certificate template not found or access denied"
         });
       }
+    } else if (isFreePlan) {
+      // 🛡️ SAFETY NET: If Free user didn't select a template (frontend issue?), try to find their default or most recent one
+      // This prevents falling back to the generic "Basic" template which they likely don't want
+      console.log("DEBUG: Free plan user with no templateId. Searching for fallback template...");
+
+      // Try to find default first
+      template = await CertificateTemplate.findOne({ orgId: orgId, isDefault: true });
+
+      // If no default, get the most recently updated one
+      if (!template) {
+        template = await CertificateTemplate.findOne({ orgId: orgId }).sort({ updatedAt: -1 });
+      }
+
+      console.log("DEBUG: Auto-selected fallback template:", template ? template._id : "none");
     }
 
     // Generate Unique readable ID
@@ -248,13 +265,9 @@ const issueCertificate = async (req, res) => {
     // --- TEMPLATE MERGING LOGIC ---
     let finalCanvasJSON = null;
 
-    if (templateId && mongoose.Types.ObjectId.isValid(templateId) && !isFreePlan) {
-      // PAID PLAN: Use selected template
-      const template = await CertificateTemplate.findOne({
-        _id: templateId,
-        orgId: orgId,
-      });
-      if (template && template.canvasJSON) {
+    if (template) {
+      // Use selected template for ALL plans
+      if (template.canvasJSON) {
         let canvasData;
         try {
           const decryptedString = template.getDecryptedCanvasJSON ? template.getDecryptedCanvasJSON() : template.canvasJSON;
@@ -264,9 +277,11 @@ const issueCertificate = async (req, res) => {
           canvasData = { elements: [] };
         }
         finalCanvasJSON = canvasData;
-        certificateData.templateId = templateId;
+        console.log("DEBUG: extracted canvasData elements count:", finalCanvasJSON?.elements?.length); // DEBUG LOG
+        certificateData.templateId = template._id;
       }
     }
+    console.log("DEBUG: finalCanvasJSON set:", !!finalCanvasJSON); // DEBUG LOG
 
     // FALLBACK / FREE PLAN: Use default template
     if (!finalCanvasJSON) {
