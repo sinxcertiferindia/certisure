@@ -554,6 +554,54 @@ const bulkIssueCertificates = async (req, res) => {
     const prefixes = organization.certificatePrefixes || [];
     const defaultPrefix = organization.defaultCertificatePrefix || (prefixes.length > 0 ? prefixes[0] : "CERT");
 
+    // 1. Collect unique Template IDs to fetch
+    const templateIds = [...new Set(certificates.map(c => c.templateId).filter(id => id && mongoose.Types.ObjectId.isValid(id)))];
+
+    // 2. Fetch Templates
+    let templateMap = {};
+    if (templateIds.length > 0) {
+      const templates = await CertificateTemplate.find({
+        _id: { $in: templateIds },
+        orgId: orgId
+      });
+
+      templates.forEach(t => {
+        let canvasData = null;
+        try {
+          // Decrypt if method exists, else raw
+          const decryptedString = t.getDecryptedCanvasJSON ? t.getDecryptedCanvasJSON() : t.canvasJSON;
+          canvasData = typeof decryptedString === 'string' ? JSON.parse(decryptedString) : decryptedString;
+        } catch (e) {
+          console.error("Bulk Issue - Template Parse Error:", e);
+          canvasData = { elements: [] };
+        }
+        templateMap[t._id.toString()] = {
+          elements: canvasData.elements,
+          backgroundColor: t.backgroundColor,
+          backgroundImage: t.backgroundImage,
+          orientation: t.orientation,
+          width: t.width,
+          height: t.height
+        };
+      });
+    }
+
+    // Default Fallback Template (same as issueCertificate)
+    const defaultRenderData = {
+      elements: [
+        { id: 'border', type: 'shape', shapeType: 'rectangle', x: 50, y: 50, width: 95, height: 95, color: '#b8860b', fillColor: 'transparent', strokeWidth: 5 },
+        { id: 'title', type: 'text', content: 'CERTIFICATE OF COMPLETION', x: 50, y: 25, fontSize: 32, fontWeight: 'bold', fontFamily: 'serif', color: '#1a1a1a', align: 'center' },
+        { id: 'text1', type: 'text', content: 'This is to certify that', x: 50, y: 38, fontSize: 18, align: 'center' },
+        { id: 'recipient', type: 'text', content: '{{recipient_name}}', x: 50, y: 50, fontSize: 42, fontWeight: 'bold', fontFamily: 'serif', color: '#b8860b', align: 'center' },
+        { id: 'text2', type: 'text', content: 'has successfully completed', x: 50, y: 62, fontSize: 18, align: 'center' },
+        { id: 'course', type: 'text', content: '{{course_name}}', x: 50, y: 72, fontSize: 24, fontWeight: 'bold', align: 'center' },
+        { id: 'org', type: 'text', content: '{{organization_name}}', x: 50, y: 80, fontSize: 16, align: 'center' },
+        { id: 'date', type: 'text', content: 'Issued on {{issue_date}}', x: 50, y: 85, fontSize: 14, align: 'center' },
+      ],
+      backgroundColor: '#ffffff',
+      orientation: 'landscape'
+    };
+
     // Validate all certificates
     const validatedCertificates = [];
     for (const cert of certificates) {
@@ -565,17 +613,23 @@ const bulkIssueCertificates = async (req, res) => {
       }
 
       // Generate a quick random ID for each in the bulk
-      // For bulk, we'll use a slightly different random parts or just rely on the loop
-      // but to be safe we generate it here.
       const prefixToUse = cert.prefix || defaultPrefix;
-      const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
-      const finalId = `${prefixToUse}-${currentYear}-${randomStr}`;
+      // Using a random part + timestamp part to avoid collision in fast loops
+      const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const uniquePart = Date.now().toString().slice(-4);
+      const finalId = `${prefixToUse}-${currentYear}-${randomStr}${uniquePart}`;
 
       // 🔗 Construct Public Verification URL
       const origin = req.get('origin') || req.get('referer');
       const frontendBase = process.env.FRONTEND_URL || (origin ? new URL(origin).origin : 'http://localhost:5173');
       const qrCodeUrl = `${frontendBase}/verify/${finalId}`;
       const qrCodeImage = await generateQR(qrCodeUrl);
+
+      // Resolve Template / RenderData
+      let renderData = defaultRenderData;
+      if (cert.templateId && templateMap[cert.templateId]) {
+        renderData = templateMap[cert.templateId];
+      }
 
       validatedCertificates.push({
         orgId: orgId,
@@ -594,6 +648,7 @@ const bulkIssueCertificates = async (req, res) => {
         templateId: cert.templateId && mongoose.Types.ObjectId.isValid(cert.templateId)
           ? cert.templateId
           : undefined,
+        renderData: renderData, // <--- CRITICAL FIX: Save the design data!
         issuedYear: currentYear,
       });
     }
@@ -664,8 +719,13 @@ const deleteCertificate = async (req, res) => {
   try {
     const { certificateId } = req.params;
 
-    // Find certificate first to get orgId for audit
-    const certificate = await Certificate.findById(certificateId);
+    // Find certificate by readable ID or ObjectId
+    let certificate = await Certificate.findOne({ certificateId: certificateId });
+
+    if (!certificate && mongoose.Types.ObjectId.isValid(certificateId)) {
+      certificate = await Certificate.findById(certificateId);
+    }
+
     if (!certificate) {
       return res.status(404).json({ success: false, message: "Certificate not found" });
     }
@@ -685,7 +745,7 @@ const deleteCertificate = async (req, res) => {
       }
     }
 
-    await Certificate.findByIdAndDelete(certificateId);
+    await Certificate.deleteOne({ _id: certificate._id });
 
     // Log audit
     await AuditLog.create({
@@ -693,7 +753,7 @@ const deleteCertificate = async (req, res) => {
       userId: req.user?.userId || null,
       action: userRole === "SUPER_ADMIN" ? "CERTIFICATE_DELETED_BY_MASTER" : "CERTIFICATE_DELETED",
       entityType: "CERTIFICATE",
-      entityId: certificateId,
+      entityId: certificate._id,
       details: { certificateId: certificate.certificateId },
       ipAddress: req.ip,
       userAgent: req.get("user-agent"),

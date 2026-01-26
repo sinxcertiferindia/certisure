@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import api from "@/services/api";
@@ -45,6 +45,7 @@ interface Certificate {
   issuerOrg: string;
   date: string;
   status: string;
+  renderData?: any;
 }
 import {
   DropdownMenu,
@@ -78,6 +79,9 @@ const Certificates = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [orgName, setOrgName] = useState("");
 
+  const [certificateToDownload, setCertificateToDownload] = useState<Certificate | null>(null);
+  const downloadRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const fetchCertificates = async () => {
       try {
@@ -103,6 +107,7 @@ const Certificates = () => {
             issuerOrg: cert.issuerName || orgRes.data.data.name || "Certisure",
             date: new Date(cert.issueDate).toLocaleDateString(),
             status: cert.status,
+            renderData: cert.renderData, // Include renderData
           }));
           setCertificates(mapped);
         }
@@ -116,8 +121,6 @@ const Certificates = () => {
     fetchCertificates();
   }, []);
 
-
-
   // Filter certificates based on search and status
   const filteredCertificates = certificates.filter((cert) => {
     const matchesSearch =
@@ -130,31 +133,21 @@ const Certificates = () => {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "active":
-        return <CheckCircle2 className="w-4 h-4 text-success" />;
-      case "pending":
-        return <Clock className="w-4 h-4 text-warning" />;
-      case "expired":
-        return <Clock className="w-4 h-4 text-muted-foreground" />;
-      case "revoked":
-        return <XCircle className="w-4 h-4 text-destructive" />;
-      default:
-        return null;
+      case "active": return <CheckCircle2 className="w-4 h-4 text-success" />;
+      case "pending": return <Clock className="w-4 h-4 text-warning" />;
+      case "expired": return <Clock className="w-4 h-4 text-muted-foreground" />;
+      case "revoked": return <XCircle className="w-4 h-4 text-destructive" />;
+      default: return null;
     }
   };
 
   const getStatusVariant = (status: string) => {
     switch (status) {
-      case "active":
-        return "verified";
-      case "pending":
-        return "warning";
-      case "expired":
-        return "secondary";
-      case "revoked":
-        return "destructive";
-      default:
-        return "default";
+      case "active": return "verified";
+      case "pending": return "warning";
+      case "expired": return "secondary";
+      case "revoked": return "destructive";
+      default: return "default";
     }
   };
 
@@ -167,123 +160,64 @@ const Certificates = () => {
     setShowDetailsDialog(true);
   };
 
-  const handleDownloadPDF = (cert: Certificate) => {
-    try {
-      // Create a new PDF document
-      const pdf = new jsPDF({
-        orientation: "landscape",
-        unit: "mm",
-        format: "a4",
-      });
+  const handleDownloadPDF = async (cert: Certificate) => {
+    // Set the certificate to be rendered in the hidden container
+    setCertificateToDownload(cert);
 
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
+    toast({
+      title: "Generating PDF...",
+      description: "Please wait while we prepare your high-quality certificate.",
+    });
 
-      // Set background color (light gray)
-      pdf.setFillColor(245, 245, 245);
-      pdf.rect(0, 0, pageWidth, pageHeight, "F");
+    // Wait for state update and render
+    setTimeout(async () => {
+      if (!downloadRef.current) return;
 
-      // Add border
-      pdf.setDrawColor(200, 200, 200);
-      pdf.setLineWidth(0.5);
-      pdf.rect(10, 10, pageWidth - 20, pageHeight - 20);
+      try {
+        const element = downloadRef.current;
 
-      // Title
-      pdf.setFontSize(32);
-      pdf.setTextColor(30, 58, 138);
-      pdf.setFont("helvetica", "bold");
-      pdf.text("CERTIFICATE OF COMPLETION", pageWidth / 2, 40, { align: "center" });
+        // Use html2canvas to capture the visual design
+        // We need to ensure the element is visible for capture, but hidden from user flow. 
+        // It's positioned off-screen in the JSX.
 
-      // Subtitle
-      pdf.setFontSize(14);
-      pdf.setTextColor(100, 100, 100);
-      pdf.setFont("helvetica", "normal");
-      pdf.text("This is to certify that", pageWidth / 2, 55, { align: "center" });
+        const canvas = await import("html2canvas").then(m => m.default(element, {
+          scale: 2, // High resolution
+          useCORS: true,
+          logging: false,
+          backgroundColor: cert.renderData?.backgroundColor || '#ffffff',
+          width: 1000,
+          height: element.offsetHeight,
+          windowWidth: 1200, // Ensure wide enough viewport context
+        }));
 
-      // Recipient name
-      pdf.setFontSize(24);
-      pdf.setTextColor(0, 0, 0);
-      pdf.setFont("helvetica", "bold");
-      pdf.text(cert.recipient, pageWidth / 2, 75, { align: "center" });
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        const orientation = cert.renderData?.orientation === 'portrait' ? 'p' : 'l';
+        const format = [canvas.width, canvas.height];
 
-      // Course details
-      pdf.setFontSize(14);
-      pdf.setTextColor(100, 100, 100);
-      pdf.setFont("helvetica", "normal");
-      pdf.text("has successfully completed the course", pageWidth / 2, 90, { align: "center" });
+        const pdf = new jsPDF({
+          orientation: orientation,
+          unit: 'px',
+          format: format
+        });
 
-      pdf.setFontSize(18);
-      pdf.setTextColor(30, 58, 138);
-      pdf.setFont("helvetica", "bold");
-      pdf.text(cert.course, pageWidth / 2, 105, { align: "center" });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save(`${cert.id}.pdf`);
 
-      if (cert.courseCode) {
-        pdf.setFontSize(12);
-        pdf.setTextColor(100, 100, 100);
-        pdf.setFont("helvetica", "normal");
-        pdf.text(`Course Code: ${cert.courseCode}`, pageWidth / 2, 115, { align: "center" });
+        toast({
+          title: "Download Complete",
+          description: "Certificate downloaded successfully.",
+        });
+      } catch (error) {
+        console.error("PDF Generation Error:", error);
+        toast({
+          title: "Download Failed",
+          description: "Failed to generate PDF. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setCertificateToDownload(null);
       }
-
-      // Certificate ID
-      pdf.setFontSize(10);
-      pdf.setTextColor(150, 150, 150);
-      pdf.setFont("helvetica", "normal");
-      pdf.text(`Certificate ID: ${cert.id}`, pageWidth / 2, 130, { align: "center" });
-
-      // Date
-      pdf.setFontSize(12);
-      pdf.setTextColor(100, 100, 100);
-      pdf.text(`Issued on: ${cert.date}`, pageWidth / 2, 145, { align: "center" });
-
-      // Organization
-      pdf.setFontSize(12);
-      pdf.setTextColor(100, 100, 100);
-      pdf.text(`Issued by: ${cert.issuerOrg}`, pageWidth / 2, 155, { align: "center" });
-
-      // Status badge
-      pdf.setFontSize(10);
-      pdf.setTextColor(0, 128, 0);
-      pdf.setFont("helvetica", "bold");
-      pdf.text(`Status: ${cert.status.toUpperCase()}`, pageWidth / 2, 170, { align: "center" });
-
-      // Footer
-      pdf.setFontSize(8);
-      pdf.setTextColor(150, 150, 150);
-      pdf.setFont("helvetica", "normal");
-      pdf.text(
-        "This certificate can be verified at: " + window.location.origin + "/verify/" + cert.id,
-        pageWidth / 2,
-        pageHeight - 15,
-        { align: "center" }
-      );
-
-      // Add "Issued via Certisure" footer for FREE plan
-      if (subscriptionPlan === "FREE") {
-        pdf.setFontSize(8);
-        pdf.setTextColor(150, 150, 150);
-        pdf.text(
-          "Issued via Certisure (Free Plan)",
-          pageWidth / 2,
-          pageHeight - 10,
-          { align: "center" }
-        );
-      }
-
-      // Download the PDF
-      pdf.save(`certificate_${cert.id}.pdf`);
-
-      toast({
-        title: "Download Complete",
-        description: `Certificate ${cert.id} has been downloaded successfully.`,
-      });
-    } catch (error) {
-      console.error("Error generating PDF:", error);
-      toast({
-        title: "Download Failed",
-        description: "There was an error generating the PDF. Please try again.",
-        variant: "destructive",
-      });
-    }
+    }, 1000); // 1s wait for images/render
   };
 
   const handleVerify = (cert: Certificate) => {
@@ -297,10 +231,8 @@ const Certificates = () => {
 
   const confirmDelete = async () => {
     if (!certificateToDelete) return;
-
     try {
       const response = await api.delete(`/certificates/${certificateToDelete.id}`);
-
       if (response.data.success) {
         setCertificates(prev => prev.filter(c => c.id !== certificateToDelete.id));
         toast({
@@ -322,7 +254,6 @@ const Certificates = () => {
   };
 
   const handleExport = () => {
-    // Convert filtered certificates to CSV
     const headers = ["Certificate ID", "Recipient", "Recipient Email", "Course", "Course Code", "Organization", "Date", "Status"];
     const rows = filteredCertificates.map(cert => [
       cert.id,
@@ -334,12 +265,10 @@ const Certificates = () => {
       cert.date,
       cert.status,
     ]);
-
     const csvContent = [
       headers.join(","),
       ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
     ].join("\n");
-
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -349,7 +278,6 @@ const Certificates = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
     toast({
       title: "Export Complete",
       description: `Exported ${filteredCertificates.length} certificate(s) to CSV.`,
@@ -358,11 +286,96 @@ const Certificates = () => {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      {/* Unified Sidebar */}
+      {/* Hidden Download Container */}
+      {/* We render this off-screen but "visible" to the DOM so html2canvas can capture it */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '-9999px',
+          top: '-9999px',
+          visibility: 'visible' // Must be visible for capture
+        }}
+      >
+        {certificateToDownload && (
+          <div
+            ref={downloadRef}
+            style={{
+              width: '1000px',
+              height: (certificateToDownload.renderData?.orientation === 'portrait' ? '1414px' : '707px'),
+              position: 'relative',
+              backgroundColor: certificateToDownload.renderData?.backgroundColor || '#ffffff',
+              backgroundImage: certificateToDownload.renderData?.backgroundImage ? `url(${certificateToDownload.renderData.backgroundImage})` : 'none',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              overflow: 'hidden'
+            }}
+          >
+            {certificateToDownload.renderData?.elements ? (
+              certificateToDownload.renderData.elements.map((el: any) => (
+                <div
+                  key={el.id}
+                  style={{
+                    position: 'absolute',
+                    left: `${el.x}%`,
+                    top: `${el.y}%`,
+                    width: el.width ? `${el.width}px` : 'auto',
+                    height: el.height ? `${el.height}px` : 'auto',
+                    color: el.color,
+                    fontFamily: el.fontFamily,
+                    fontSize: el.fontSize ? `${el.fontSize}px` : '18px',
+                    fontWeight: el.fontWeight,
+                    textAlign: el.align as any,
+                    opacity: el.opacity,
+                    padding: `${(el.padding || 0)}px`,
+                    zIndex: el.type === 'logo' ? 10 : 5,
+                    transform: 'translate(-50%, -50%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: el.align === 'center' ? 'center' : (el.align === 'right' ? 'flex-end' : 'flex-start'),
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {el.type === 'text' && (
+                    el.content
+                      .replace(/{{recipient_name}}/g, certificateToDownload.recipient || '')
+                      .replace(/{{course_name}}/g, certificateToDownload.course || '')
+                      .replace(/{{organization_name}}/g, certificateToDownload.issuerOrg || '')
+                      .replace(/{{issue_date}}/g, certificateToDownload.date || '')
+                      .replace(/{{certificate_id}}/g, certificateToDownload.id || '')
+                  )}
+                  {(el.type === 'logo' || el.type === 'signature') && (
+                    <img src={el.imageUrl} alt={el.type} className="w-full h-full object-contain" crossOrigin="anonymous" />
+                  )}
+                  {el.type === 'qrcode' && (
+                    // For PDF download from dashboard, we might not have the QR image pre-generated in renderData sometimes,
+                    // but bulk issue adds it. If missing, we skip or show placeholder.
+                    (el.imageUrl || certificateToDownload.renderData.qrCodeImage) ?
+                      <img src={el.imageUrl || certificateToDownload.renderData.qrCodeImage} alt="QR" className="w-full h-full" crossOrigin="anonymous" /> : null
+                  )}
+                  {el.type === 'shape' && (
+                    <div style={{
+                      width: '100%',
+                      height: '100%',
+                      backgroundColor: el.fillColor,
+                      border: el.shapeType === 'line' ? 'none' : `${(el.strokeWidth || 1)}px solid ${el.color}`,
+                      borderTop: el.shapeType === 'line' ? `${(el.strokeWidth || 1)}px solid ${el.color}` : undefined,
+                      borderRadius: el.shapeType === 'circle' ? '50%' : `${el.borderRadius || 0}px`
+                    }} />
+                  )}
+                </div>
+              ))
+            ) : (
+              // Fallback for old certificates without renderData
+              <div className="flex items-center justify-center w-full h-full">
+                <h2 className="text-4xl font-bold">{certificateToDownload.course}</h2>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <AppSidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
-      {/* Main Content */}
       <main className={`flex-1 ${sidebarCollapsed ? "ml-20" : "ml-64"} transition-all duration-300`}>
         {/* Header */}
         <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-xl border-b border-border px-6 py-4">

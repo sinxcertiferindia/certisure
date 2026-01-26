@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Download,
@@ -44,13 +46,23 @@ const BulkUpload = () => {
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>("FREE");
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
 
-  // Check subscription plan
+  // New State for Template and Type Selection
+  const [certificateTemplates, setCertificateTemplates] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [selectedType, setSelectedType] = useState<string>("Completion");
+
+  // Check subscription plan & Load Templates
   useEffect(() => {
-    const loadOrganization = async () => {
+    const loadData = async () => {
       try {
-        const response = await api.get("/org/profile");
-        const org = response.data.data;
+        const [orgRes, templatesRes] = await Promise.all([
+          api.get("/org/profile"),
+          api.get("/templates/certificate")
+        ]);
+
+        const org = orgRes.data.data;
         setSubscriptionPlan(org.subscriptionPlan || "FREE");
+        setCertificateTemplates(templatesRes.data.data || []);
         setIsLoadingPlan(false);
 
         // Redirect FREE users
@@ -65,11 +77,11 @@ const BulkUpload = () => {
           }, 2000);
         }
       } catch (error) {
-        console.error("Failed to load organization:", error);
+        console.error("Failed to load data:", error);
         setIsLoadingPlan(false);
       }
     };
-    loadOrganization();
+    loadData();
   }, [navigate, toast]);
 
   // CSV Template content
@@ -201,7 +213,8 @@ Jane Smith,jane.smith@example.com,Data Science Fundamentals,TechCorp Academy,202
           issueDate: record.issue_date,
           expiryDate: record.expiration_date || undefined,
           batchName: record.batch_name || undefined,
-          certificateType: "Completion", // Default type
+          certificateType: selectedType, // Use selected type globally
+          templateId: selectedTemplate || undefined, // Use selected template globally
         }));
 
         // Call bulk issue API
@@ -319,6 +332,50 @@ Jane Smith,jane.smith@example.com,Data Science Fundamentals,TechCorp Academy,202
             Issue multiple certificates at once
           </p>
         </div>
+
+        {/* Global Configuration Section */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Certificate Settings</CardTitle>
+            <CardDescription>Select settings that will apply to all certificates in this batch</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label>Certificate Template</Label>
+                <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {certificateTemplates.map((t) => (
+                      <SelectItem key={t._id} value={t._id}>{t.templateName}</SelectItem>
+                    ))}
+                    {certificateTemplates.length === 0 && (
+                      <SelectItem value="none" disabled>No templates available</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">This design will be applied to all certificates.</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Certificate Type</Label>
+                <Select value={selectedType} onValueChange={setSelectedType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Completion">Certificate of Completion</SelectItem>
+                    <SelectItem value="Participation">Certificate of Participation</SelectItem>
+                    <SelectItem value="Achievement">Certificate of Achievement</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">The type of certificate (e.g., Completion).</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* How It Works Stepper */}
         <Card className="mb-6">
